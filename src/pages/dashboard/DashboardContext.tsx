@@ -946,9 +946,16 @@ function useDashboardController({
   );
   const [restCurrency, setRestCurrency] = useState(rest.currency || 'د.ع');
   const [restActive, setRestActive] = useState(rest.a !== 0);
-  const [allowDelivery, setAllowDelivery] = useState(rest.enabledOrderTypes?.delivery !== false);
-  const [allowPickup, setAllowPickup] = useState(rest.enabledOrderTypes?.pickup !== false);
-  const [allowTable, setAllowTable] = useState(Boolean(rest.enabledOrderTypes?.table));
+  const [viewOnlyMode, setViewOnlyModeRaw] = useState(Boolean(rest.viewOnlyMode));
+  const [allowDelivery, setAllowDelivery] = useState(
+    rest.viewOnlyMode ? false : rest.enabledOrderTypes?.delivery !== false
+  );
+  const [allowPickup, setAllowPickup] = useState(
+    rest.viewOnlyMode ? false : rest.enabledOrderTypes?.pickup !== false
+  );
+  const [allowTable, setAllowTable] = useState(
+    rest.viewOnlyMode ? false : Boolean(rest.enabledOrderTypes?.table)
+  );
   const [acceptClosedOrders, setAcceptClosedOrders] = useState(Boolean(rest.acceptOrdersWhenClosed));
   const [orderChannel, setOrderChannel] = useState<'both' | 'telegram' | 'whatsapp'>(() =>
     rest.orderChannel === 'both' || rest.orderChannel === 'telegram' || rest.orderChannel === 'whatsapp'
@@ -1015,6 +1022,7 @@ function useDashboardController({
     taxNote: string;
     currency: string;
     active: boolean;
+    viewOnlyMode: boolean;
     allowDelivery: boolean;
     allowPickup: boolean;
     allowTable: boolean;
@@ -1042,7 +1050,7 @@ function useDashboardController({
     `${targetRid}|${Number(rObj.freeDeliveryMin || 0)}|${JSON.stringify(rObj.addons || {})}|${JSON.stringify(rObj.offerPopup || {})}`;
 
   const buildRestSignature = (rObj: Restaurant, targetRid: string) =>
-    `${targetRid}|${rObj.planId || ''}|${rObj.slug || ''}|${rObj.lay || ''}|${rObj.themeMode || ''}|${rObj.dashboardThemeMode || ''}|${rObj.themePreset || ''}|${rObj.themeShape || ''}|${rObj.color || ''}|${rObj.bgColor || ''}|${rObj.currency || ''}|${rObj.logo || ''}|${rObj.coverImages?.[0] || ''}|${rObj.n || ''}|${rObj.orderChannel || ''}|${rObj.telegramNotificationsEnabled === false ? '0' : '1'}|${rObj.a === 0 ? '0' : '1'}|${rObj.address || ''}|${rObj.ph || ''}`;
+    `${targetRid}|${rObj.planId || ''}|${rObj.slug || ''}|${rObj.lay || ''}|${rObj.themeMode || ''}|${rObj.dashboardThemeMode || ''}|${rObj.themePreset || ''}|${rObj.themeShape || ''}|${rObj.color || ''}|${rObj.bgColor || ''}|${rObj.currency || ''}|${rObj.logo || ''}|${rObj.coverImages?.[0] || ''}|${rObj.n || ''}|${rObj.orderChannel || ''}|${rObj.telegramNotificationsEnabled === false ? '0' : '1'}|${rObj.a === 0 ? '0' : '1'}|${rObj.viewOnlyMode ? '1' : '0'}|${JSON.stringify(rObj.enabledOrderTypes || {})}|${rObj.acceptOrdersWhenClosed ? '1' : '0'}|${rObj.address || ''}|${rObj.ph || ''}`;
 
   // Synchronize dashboard form state when switching branch or syncing remote DB
   const syncedRestRef = useRef<string>('');
@@ -1113,9 +1121,10 @@ function useDashboardController({
     const nextTagline = sanitizeProjectTagline(rest.tagline, nextProjectType);
     const nextCurrency = rest.currency || 'د.ع';
     const nextActive = rest.a !== 0;
-    const nextDelivery = rest.enabledOrderTypes?.delivery !== false;
-    const nextPickup = rest.enabledOrderTypes?.pickup !== false;
-    const nextTable = Boolean(rest.enabledOrderTypes?.table);
+    const nextViewOnly = Boolean(rest.viewOnlyMode);
+    const nextDelivery = nextViewOnly ? false : rest.enabledOrderTypes?.delivery !== false;
+    const nextPickup = nextViewOnly ? false : rest.enabledOrderTypes?.pickup !== false;
+    const nextTable = nextViewOnly ? false : Boolean(rest.enabledOrderTypes?.table);
     const nextClosed = Boolean(rest.acceptOrdersWhenClosed);
     const nextChannel: 'both' | 'telegram' | 'whatsapp' =
       rest.orderChannel === 'both' || rest.orderChannel === 'telegram' || rest.orderChannel === 'whatsapp'
@@ -1145,6 +1154,7 @@ function useDashboardController({
       taxNote: nextTax,
       currency: nextCurrency,
       active: nextActive,
+      viewOnlyMode: nextViewOnly,
       allowDelivery: nextDelivery,
       allowPickup: nextPickup,
       allowTable: nextTable,
@@ -1180,6 +1190,7 @@ function useDashboardController({
     setRestTagline(nextTagline);
     setRestCurrency(nextCurrency);
     setRestActive(nextActive);
+    setViewOnlyModeRaw(nextViewOnly);
     setAllowDelivery(nextDelivery);
     setAllowPickup(nextPickup);
     setAllowTable(nextTable);
@@ -2888,7 +2899,7 @@ function useDashboardController({
       aboutText: aboutTextInput.trim(),
       taxNote: taxNoteInput.trim(),
       currency: restCurrency || 'د.ع',
-      a: restActive ? 1 : 0,
+      a: latestRest.a !== undefined ? latestRest.a : 1,
       ...(resolvedPlan.perms.customSlug
         ? {
             slug: slugIsValid
@@ -2906,11 +2917,12 @@ function useDashboardController({
             slug: latestRest.slug || generateRandomMenuCode(),
             subdomain: '',
           }),
+      viewOnlyMode: Boolean(viewOnlyMode),
       enabledOrderTypes: {
         ...(latestRest.enabledOrderTypes || {}),
-        delivery: resolvedPlan.perms.deliveryOrders ? allowDelivery : false,
-        pickup: resolvedPlan.perms.pickupOrders ? allowPickup : false,
-        table: resolvedPlan.perms.tableOrders ? allowTable : false,
+        delivery: viewOnlyMode ? false : resolvedPlan.perms.deliveryOrders ? allowDelivery : false,
+        pickup: viewOnlyMode ? false : resolvedPlan.perms.pickupOrders ? allowPickup : false,
+        table: viewOnlyMode ? false : resolvedPlan.perms.tableOrders ? allowTable : false,
       },
       acceptOrdersWhenClosed: acceptClosedOrders,
       orderChannel,
@@ -2963,6 +2975,7 @@ function useDashboardController({
     taxNote: taxNoteInput,
     currency: restCurrency,
     active: restActive,
+    viewOnlyMode,
     allowDelivery,
     allowPickup,
     allowTable,
@@ -3010,6 +3023,43 @@ function useDashboardController({
       }
     };
   }, [currentSettingsDigest]);
+
+  const toggleViewOnlyMode = () => {
+    const next = !viewOnlyMode;
+    setViewOnlyModeRaw(next);
+    if (next) {
+      setAllowDelivery(false);
+      setAllowPickup(false);
+      setAllowTable(false);
+    } else if (!allowDelivery && !allowPickup && !allowTable) {
+      if (resolvedPlan.perms.deliveryOrders) setAllowDelivery(true);
+      if (resolvedPlan.perms.pickupOrders) setAllowPickup(true);
+      if (!resolvedPlan.perms.deliveryOrders && !resolvedPlan.perms.pickupOrders && resolvedPlan.perms.tableOrders) {
+        setAllowTable(true);
+      }
+    }
+  };
+
+  const toggleOrderType = (type: 'delivery' | 'pickup' | 'table') => {
+    const nextDelivery = type === 'delivery' ? !allowDelivery : allowDelivery;
+    const nextPickup = type === 'pickup' ? !allowPickup : allowPickup;
+    const nextTable = type === 'table' ? !allowTable : allowTable;
+
+    if (type === 'delivery') setAllowDelivery(nextDelivery);
+    if (type === 'pickup') setAllowPickup(nextPickup);
+    if (type === 'table') setAllowTable(nextTable);
+
+    const anyEnabled =
+      (resolvedPlan.perms.deliveryOrders && nextDelivery) ||
+      (resolvedPlan.perms.pickupOrders && nextPickup) ||
+      (resolvedPlan.perms.tableOrders && nextTable);
+
+    if (!anyEnabled) {
+      setViewOnlyModeRaw(true);
+    } else if (viewOnlyMode) {
+      setViewOnlyModeRaw(false);
+    }
+  };
 
   const handleSeedStoreCatalog = (mode: 'if_empty' | 'append_missing' = 'append_missing') => {
     const res = seedStoreCatalogForAccount(rid, restCurrency || 'د.ع', mode);
@@ -3489,6 +3539,9 @@ function useDashboardController({
     restCurrency,
     restActive,
     setRestActive,
+    viewOnlyMode,
+    toggleViewOnlyMode,
+    toggleOrderType,
     allowDelivery,
     setAllowDelivery,
     allowPickup,

@@ -78,6 +78,7 @@ export interface EstoreStorefrontProps {
   openNow: boolean;
   orderType: OrderType;
   enabledTypes: OrderType[];
+  isCatalogViewOnly?: boolean;
   orderTypeMeta: Record<OrderType, { label: string; icon: React.ReactNode }>;
   hasMultipleBranches: boolean;
   branchShortLabel: string;
@@ -147,6 +148,7 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
   openNow,
   orderType,
   enabledTypes,
+  isCatalogViewOnly = false,
   orderTypeMeta,
   hasMultipleBranches,
   branchShortLabel,
@@ -543,15 +545,20 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
               <span>{openNow ? 'مفتوح الآن' : 'مغلق حالياً'}</span>
             </button>
 
-            <button
-              type="button"
-              className="mp-bg-announce-btn"
-              onClick={openOrderTypeModal}
-            >
-              {orderTypeMeta[orderType].icon}
-              <span>{orderTypeMeta[orderType].label}</span>
-              <ChevronDown size={12} />
-            </button>
+            {!isCatalogViewOnly && (
+              <button
+                type="button"
+                className="mp-bg-announce-btn"
+                onClick={() => {
+                  if (enabledTypes.length > 1) openOrderTypeModal();
+                }}
+                style={enabledTypes.length <= 1 ? { cursor: 'default' } : undefined}
+              >
+                {orderTypeMeta[orderType].icon}
+                <span>{orderTypeMeta[orderType].label}</span>
+                {enabledTypes.length > 1 && <ChevronDown size={12} />}
+              </button>
+            )}
 
             {hasMultipleBranches && (
               <button
@@ -724,16 +731,18 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
               )}
             </button>
 
-            <button
-              type="button"
-              className="mp-bg-icon-btn is-cart"
-              onClick={openCart}
-              aria-label="سلة التسوق"
-              title="سلة التسوق"
-            >
-              <ShoppingBag size={19} strokeWidth={1.8} />
-              <span className="mp-bg-icon-badge is-dark tabular-nums">{totalCount}</span>
-            </button>
+            {!isCatalogViewOnly && (
+              <button
+                type="button"
+                className="mp-bg-icon-btn is-cart"
+                onClick={openCart}
+                aria-label="سلة التسوق"
+                title="سلة التسوق"
+              >
+                <ShoppingBag size={19} strokeWidth={1.8} />
+                <span className="mp-bg-icon-badge is-dark tabular-nums">{totalCount}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -950,7 +959,7 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
                 </div>
               )}
 
-            {addons.pickupInstantDiscount?.enabled && orderType === 'pickup' && (
+            {!isCatalogViewOnly && addons.pickupInstantDiscount?.enabled && orderType === 'pickup' && (
               <span className="mp-bg-addon-chip">
                 🏪 {addons.pickupInstantDiscount.title || 'خصم الاستلام الفوري'}:{' '}
                 {addons.pickupInstantDiscount.discountPercent || 10}% تلقائي
@@ -2031,19 +2040,21 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
           <span>المفضلات</span>
         </button>
 
-        <button
-          type="button"
-          className="mp-bg-bnav-btn"
-          onClick={openCart}
-        >
-          <div className="mp-bg-bnav-icon-wrap">
-            <ShoppingCart size={18} strokeWidth={1.8} />
-            {totalCount > 0 && (
-              <span className="mp-bg-bnav-badge is-dark tabular-nums">{totalCount}</span>
-            )}
-          </div>
-          <span>{totalCount > 0 ? formatMoney(subtotal) : 'السلة'}</span>
-        </button>
+        {!isCatalogViewOnly && (
+          <button
+            type="button"
+            className="mp-bg-bnav-btn"
+            onClick={openCart}
+          >
+            <div className="mp-bg-bnav-icon-wrap">
+              <ShoppingCart size={18} strokeWidth={1.8} />
+              {totalCount > 0 && (
+                <span className="mp-bg-bnav-badge is-dark tabular-nums">{totalCount}</span>
+              )}
+            </div>
+            <span>{totalCount > 0 ? formatMoney(subtotal) : 'السلة'}</span>
+          </button>
+        )}
 
         {waTarget ? (
           <a

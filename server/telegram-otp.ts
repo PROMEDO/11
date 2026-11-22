@@ -1632,8 +1632,8 @@ export function formatOrderTelegramMessage(
   if (isTest) {
     lines.push('<i>طلب تجريبي للتحقق من الربط</i>');
   }
-  lines.push(`<b>رقم الطلب:</b> <code>#${seqNumber}</code>`);
   lines.push(`<b>النوع:</b> ${escapeHtml(typeLabel)} ${typeEmoji}`);
+  lines.push(`<b>رقم الطلب:</b> <code>#${seqNumber}</code>`);
   if (tableNum) {
     lines.push(`<b>الطاولة:</b> ${escapeHtml(tableNum)}`);
   }
@@ -1709,6 +1709,7 @@ export function formatOrderTelegramMessage(
   ) {
     const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
     const wazeUrl = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+    if (customerBlock.length > 0) customerBlock.push('');
     customerBlock.push(`📍 <b>خرائط جوجل:</b> <a href="${escapeHtml(googleMapsUrl)}">${escapeHtml(googleMapsUrl)}</a>`);
     customerBlock.push(`🚗 <b>ويز (Waze):</b> <a href="${escapeHtml(wazeUrl)}">${escapeHtml(wazeUrl)}</a>`);
   }

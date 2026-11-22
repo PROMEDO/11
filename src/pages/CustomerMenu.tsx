@@ -437,34 +437,39 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
     return filtered as RestaurantAddons;
   }, [rawAddons, resolvedPlan, isToters]);
 
-  // Available order types (gated by plan permissions + restaurant toggles)
+  // Available order types (gated by plan permissions + restaurant toggles + viewOnlyMode)
   const enabledTypes = useMemo<OrderType[]>(() => {
+    if (rest?.viewOnlyMode) return [];
     const cfg = rest?.enabledOrderTypes;
     const list: OrderType[] = [];
     if (resolvedPlan.perms.deliveryOrders && cfg?.delivery !== false) list.push('delivery');
     if (resolvedPlan.perms.pickupOrders && cfg?.pickup !== false) list.push('pickup');
     if (resolvedPlan.perms.tableOrders && cfg?.table === true) list.push('table');
-    if (list.length === 0) {
-      if (resolvedPlan.perms.deliveryOrders) list.push('delivery');
-      else if (resolvedPlan.perms.pickupOrders) list.push('pickup');
-      else if (resolvedPlan.perms.tableOrders) list.push('table');
-      else list.push('delivery');
-    }
     return list;
   }, [
+    rest?.viewOnlyMode,
     rest?.enabledOrderTypes,
     resolvedPlan.perms.deliveryOrders,
     resolvedPlan.perms.pickupOrders,
     resolvedPlan.perms.tableOrders,
   ]);
 
+  const isCatalogViewOnly = Boolean(rest?.viewOnlyMode) || enabledTypes.length === 0;
+
   const [orderType, setOrderType] = useState<OrderType>('delivery');
 
   useEffect(() => {
-    if (!enabledTypes.includes(orderType)) {
+    if (enabledTypes.length > 0 && !enabledTypes.includes(orderType)) {
       setOrderType(enabledTypes[0]);
     }
   }, [enabledTypes, orderType]);
+
+  useEffect(() => {
+    if (isCatalogViewOnly) {
+      setCartOpen(false);
+      setOrderTypeModalOpen(false);
+    }
+  }, [isCatalogViewOnly]);
 
   // Storefront SEO: Dynamic title, meta description, canonical & Schema.org Restaurant + Menu JSON-LD
   useEffect(() => {
@@ -980,8 +985,8 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
   const rawCatsForRest = getCollection<Category>('cats')
     .filter((c) => c.rid === restaurantId && c.published !== false)
     .filter((c) => {
-      if (orderType === 'delivery' && c.noDelivery) return false;
-      if (orderType === 'pickup' && c.noPickup) return false;
+      if (!isCatalogViewOnly && orderType === 'delivery' && c.noDelivery) return false;
+      if (!isCatalogViewOnly && orderType === 'pickup' && c.noPickup) return false;
       return true;
     })
     .sort((a, b) => (a.o || 0) - (b.o || 0));
@@ -998,8 +1003,8 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
     .filter((i) => i.rid === restaurantId && i.published !== false && i.available !== false)
     .filter((i) => {
       if (i.dineInOnly) return true;
-      if (orderType === 'delivery' && i.noDelivery) return false;
-      if (orderType === 'pickup' && i.noPickup) return false;
+      if (!isCatalogViewOnly && orderType === 'delivery' && i.noDelivery) return false;
+      if (!isCatalogViewOnly && orderType === 'pickup' && i.noPickup) return false;
       return true;
     })
     .sort((a, b) => (a.o || 0) - (b.o || 0));
@@ -1301,7 +1306,8 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
   const getItemCartQty = (itemId: string) =>
     cart.filter((c) => c.itemId === itemId).reduce((s, c) => s + c.qty, 0);
 
-  const isDisplayOnlyItem = (it: MenuItem) => Boolean(it.dineInOnly && orderType !== 'table');
+  const isDisplayOnlyItem = (it: MenuItem) =>
+    isCatalogViewOnly || Boolean(it.dineInOnly && orderType !== 'table');
 
   const getItemOriginalBaseUnit = (it: MenuItem, sizeOpt?: MenuItemSize | null): number => {
     if (sizeOpt) {
@@ -1399,6 +1405,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
   };
 
   const addSpecialCustomLine = (id: string, name: string, price: number, notes?: string, img?: string) => {
+    if (isCatalogViewOnly) return;
     setCart((prev) => {
       const idx = prev.findIndex((x) => x.key === id);
       if (idx >= 0) {
@@ -1551,7 +1558,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmittingOrder) return;
+    if (isSubmittingOrder || isCatalogViewOnly) return;
     if (!canOrderNow) {
       showToast('مغلق حالياً ولا يستقبل الطلبات');
       return;
@@ -1735,8 +1742,8 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
 
       const lines: string[] = [
         'طلب جديد 📌',
-        `رقم الطلب: #${resolvedOrderSeq}`,
         `النوع: ${typeLabel} ${typeEmoji}`,
+        `رقم الطلب: #${resolvedOrderSeq}`,
         ...(tableVal ? [`الطاولة: ${tableVal}`] : []),
         '',
         '----------------',
@@ -1781,6 +1788,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
       if (cu.n) customerBlock.push(`الزبون: ${cu.n}`);
       if (cu.ph) customerBlock.push(`الهاتف: ${cu.ph}`);
       if (orderType === 'delivery' && gpsCoords) {
+        if (customerBlock.length > 0) customerBlock.push('');
         customerBlock.push(`📍 خرائط جوجل: https://www.google.com/maps?q=${gpsCoords.lat},${gpsCoords.lng}`);
         customerBlock.push(`🚗 ويز (Waze): https://waze.com/ul?ll=${gpsCoords.lat},${gpsCoords.lng}&navigate=yes`);
       }
@@ -2042,6 +2050,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
             openNow={openNow}
             orderType={orderType}
             enabledTypes={enabledTypes}
+            isCatalogViewOnly={isCatalogViewOnly}
             orderTypeMeta={ORDER_TYPE_META}
             hasMultipleBranches={hasMultipleBranches}
             branchShortLabel={branchShortLabel}
@@ -2113,15 +2122,20 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                     <Menu size={19} />
                   </button>
 
-                  <button
-                    type="button"
-                    className="pm-toters-mode-pill"
-                    onClick={() => setOrderTypeModalOpen(true)}
-                  >
-                    <span style={{ color: brandColor, display: 'inline-flex' }}>{ORDER_TYPE_META[orderType].icon}</span>
-                    <span>{ORDER_TYPE_META[orderType].label}</span>
-                    <ChevronDown size={13} />
-                  </button>
+                  {!isCatalogViewOnly && (
+                    <button
+                      type="button"
+                      className="pm-toters-mode-pill"
+                      onClick={() => {
+                        if (enabledTypes.length > 1) setOrderTypeModalOpen(true);
+                      }}
+                      style={enabledTypes.length <= 1 ? { cursor: 'default' } : undefined}
+                    >
+                      <span style={{ color: brandColor, display: 'inline-flex' }}>{ORDER_TYPE_META[orderType].icon}</span>
+                      <span>{ORDER_TYPE_META[orderType].label}</span>
+                      {enabledTypes.length > 1 && <ChevronDown size={13} />}
+                    </button>
+                  )}
 
                   {hasMultipleBranches && (
                     <button
@@ -2251,15 +2265,20 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                   <Menu size={20} />
                 </button>
 
-                <button
-                  type="button"
-                  className="pm-order-type-pill"
-                  onClick={() => setOrderTypeModalOpen(true)}
-                >
-                  <span style={{ color: accentText }}>{ORDER_TYPE_META[orderType].icon}</span>
-                  <span>{ORDER_TYPE_META[orderType].label}</span>
-                  <ChevronDown size={14} style={{ color: 'var(--pm-muted)' }} />
-                </button>
+                {!isCatalogViewOnly && (
+                  <button
+                    type="button"
+                    className="pm-order-type-pill"
+                    onClick={() => {
+                      if (enabledTypes.length > 1) setOrderTypeModalOpen(true);
+                    }}
+                    style={enabledTypes.length <= 1 ? { cursor: 'default' } : undefined}
+                  >
+                    <span style={{ color: accentText }}>{ORDER_TYPE_META[orderType].icon}</span>
+                    <span>{ORDER_TYPE_META[orderType].label}</span>
+                    {enabledTypes.length > 1 && <ChevronDown size={14} style={{ color: 'var(--pm-muted)' }} />}
+                  </button>
+                )}
 
                 {hasMultipleBranches && (
                   <button
@@ -2374,12 +2393,12 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                     color: 'var(--pm-muted)',
                   }}
                 >
-                  {freeDeliveryEnabled && freeDeliveryMin > 0 && orderType === 'delivery' ? (
+                  {!isCatalogViewOnly && freeDeliveryEnabled && freeDeliveryMin > 0 && orderType === 'delivery' ? (
                     <span style={{ color: accentText, fontWeight: 700 }}>
                       توصيل مجاني فوق {fmtMoney(freeDeliveryMin)}
                     </span>
                   ) : null}
-                  {!openNow && rest.acceptOrdersWhenClosed && (
+                  {!isCatalogViewOnly && !openNow && rest.acceptOrdersWhenClosed && (
                     <span style={{ color: isLightMenu ? '#b45309' : '#FCD34D' }}>
                       · نستقبل الطلبات المسبقة
                     </span>
@@ -2504,7 +2523,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
         )}
 
         {/* Active Smart Deal Pills: Pickup Instant Discount & Mood Finder */}
-        {((addons.pickupInstantDiscount?.enabled && orderType === 'pickup') ||
+        {((!isCatalogViewOnly && addons.pickupInstantDiscount?.enabled && orderType === 'pickup') ||
           addons.moodMealFinder?.enabled) && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
             {addons.moodMealFinder?.enabled && (
@@ -2529,7 +2548,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                 <span>{addons.moodMealFinder.buttonText || 'اختر وجبتك حسب مزاجك'}</span>
               </button>
             )}
-            {addons.pickupInstantDiscount?.enabled && orderType === 'pickup' && (
+            {!isCatalogViewOnly && addons.pickupInstantDiscount?.enabled && orderType === 'pickup' && (
               <span
                 className="pm-shape-pill"
                 style={{
@@ -3347,7 +3366,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
       )}
 
       {/* Persistent Always-Floating Bottom Cart & Free Delivery Dock */}
-      {!cartOpen && (
+      {!cartOpen && !isCatalogViewOnly && (
         <div className="pm-floating-dock">
           <div className="pm-dock-inner">
             {isToters && addons.loyaltyPoints?.enabled && (
@@ -3620,36 +3639,42 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                   .map((s) => ({ ...s, n: getSizeLabel(s), p: getOptionPrice(s) }))
                   .filter((s) => s.n);
                 if (validSizes.length === 0) return null;
+                const modalDisplayOnly = isDisplayOnlyItem(activeProduct);
                 return (
                   <div style={{ marginBottom: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <h4 style={{ margin: 0, fontSize: '14.5px', fontWeight: 900, color: 'var(--pm-ink)' }}>
                         {isEstore ? 'السعة / الخيار' : 'الحجم'}
                       </h4>
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 800,
-                          color: accentText,
-                          background: isToters ? 'var(--pm-soft)' : 'transparent',
-                          padding: isToters ? '3px 8px' : 0,
-                          borderRadius: '8px',
-                        }}
-                      >
-                        مطلوب
-                      </span>
+                      {!modalDisplayOnly && (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            color: accentText,
+                            background: isToters ? 'var(--pm-soft)' : 'transparent',
+                            padding: isToters ? '3px 8px' : 0,
+                            borderRadius: '8px',
+                          }}
+                        >
+                          مطلوب
+                        </span>
+                      )}
                     </div>
                     {validSizes.map((sz, idx) => {
-                      const isSel = selectedSize ? getSizeLabel(selectedSize) === sz.n : false;
+                      const isSel = !modalDisplayOnly && (selectedSize ? getSizeLabel(selectedSize) === sz.n : false);
                       const discountedSzPrice = applyMenuPriceDiscount(sz.p, activeMenuDiscount);
                       return (
                         <div
                           key={`${sz.n}_${idx}`}
                           className={`pm-option-row ${isSel ? 'selected' : ''}`}
-                          onClick={() => setSelectedSize(sz)}
+                          style={modalDisplayOnly ? { cursor: 'default' } : undefined}
+                          onClick={modalDisplayOnly ? undefined : () => setSelectedSize(sz)}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                            <input type="radio" name="pm_size" checked={isSel} readOnly style={{ accentColor: accentText }} />
+                            {!modalDisplayOnly && (
+                              <input type="radio" name="pm_size" checked={isSel} readOnly style={{ accentColor: accentText }} />
+                            )}
                             <div>
                               <b style={{ fontSize: '13.5px', color: 'var(--pm-ink)' }}>{sz.n}</b>
                               {sz.cal && (
@@ -3678,6 +3703,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
 
               {/* Choices (Free options — supports both string[] and { n }[]) */}
               {(() => {
+                if (isDisplayOnlyItem(activeProduct)) return null;
                 const validChoices = (activeProduct.choices || [])
                   .map((c) => getChoiceLabel(c))
                   .filter(Boolean);
@@ -3746,13 +3772,14 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                   .map((ex) => ({ ...ex, n: getExtraLabel(ex), p: getOptionPrice(ex) }))
                   .filter((ex) => ex.n);
                 if (validExtras.length === 0) return null;
+                const modalDisplayOnly = isDisplayOnlyItem(activeProduct);
                 return (
                   <div style={{ marginBottom: '16px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                       <h4 style={{ margin: 0, fontSize: '14.5px', fontWeight: 900, color: 'var(--pm-ink)' }}>
                         {isEstore ? 'ملحقات وإضافات' : 'إضافات'}
                       </h4>
-                      {(isToters || isEstore) && (
+                      {!modalDisplayOnly && (isToters || isEstore) && (
                         <span
                           style={{
                             fontSize: '11px',
@@ -3768,19 +3795,26 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                       )}
                     </div>
                     {validExtras.map((ex, idx) => {
-                      const checked = selectedExtras.some((e) => getExtraLabel(e) === ex.n);
+                      const checked = !modalDisplayOnly && selectedExtras.some((e) => getExtraLabel(e) === ex.n);
                       return (
                         <div
                           key={`${ex.n}_${idx}`}
                           className={`pm-option-row ${checked ? 'selected' : ''}`}
-                          onClick={() => {
-                            setSelectedExtras((prev) =>
-                              checked ? prev.filter((e) => getExtraLabel(e) !== ex.n) : [...prev, ex]
-                            );
-                          }}
+                          style={modalDisplayOnly ? { cursor: 'default' } : undefined}
+                          onClick={
+                            modalDisplayOnly
+                              ? undefined
+                              : () => {
+                                  setSelectedExtras((prev) =>
+                                    checked ? prev.filter((e) => getExtraLabel(e) !== ex.n) : [...prev, ex]
+                                  );
+                                }
+                          }
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
-                            <input type="checkbox" checked={checked} readOnly style={{ accentColor: accentText }} />
+                            {!modalDisplayOnly && (
+                              <input type="checkbox" checked={checked} readOnly style={{ accentColor: accentText }} />
+                            )}
                             <span style={{ fontSize: '13.5px', fontWeight: 700, color: 'var(--pm-ink)' }}>{ex.n}</span>
                           </div>
                           <span
@@ -3924,7 +3958,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
       {/* ================================================================
           MODAL 2: MULTI-STEP CART & CHECKOUT DRAWER (Sticky "متابعة الطلب")
           ================================================================ */}
-      {cartOpen && (
+      {cartOpen && !isCatalogViewOnly && (
         <div className="pm-modal-backdrop" onClick={() => setCartOpen(false)}>
           <div
             className="pm-sheet"
@@ -4934,6 +4968,10 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                   <button
                     type="button"
                     onClick={() => {
+                      if (!canOrderNow) {
+                        showToast('مغلق حالياً ولا يستقبل الطلبات');
+                        return;
+                      }
                       if (belowMinOrder) {
                         showToast(
                           `${addons.minOrder?.message || 'الحد الأدنى للطلب هو'} ${formatNumber(minOrderAmount)} ${currency}`
@@ -5708,7 +5746,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
       {/* ================================================================
           MODAL 7: ORDER TYPE SELECTOR POPUP
           ================================================================ */}
-      {orderTypeModalOpen && (
+      {orderTypeModalOpen && !isCatalogViewOnly && enabledTypes.length > 1 && (
         <div className="pm-modal-backdrop" onClick={() => setOrderTypeModalOpen(false)}>
           <div className="pm-sheet" style={{ padding: '20px' }} onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 14px', fontSize: '18px', fontWeight: 800, textAlign: 'center', color: 'var(--pm-ink)' }}>
@@ -6179,7 +6217,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
               { id: 'sweet', emoji: '🍰', label: 'شيء حلو ومزاج عالي', desc: 'حلويات ومشروبات ترفع المزاج' },
             ];
         const availablePool = allItems.filter(
-          (it) => !isDisplayOnlyItem(it) && itemEvalMap.get(it.id)?.available !== false
+          (it) => (isCatalogViewOnly || !isDisplayOnlyItem(it)) && itemEvalMap.get(it.id)?.available !== false
         );
         const picks = (() => {
           if (isEstore) {
@@ -6276,25 +6314,27 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                           <span className="tabular-nums" style={{ fontSize: '12px', fontWeight: 900, color: accentText }}>{sp.main}</span>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          quickAddOrOpenModal(it, e);
-                          setMoodModalOpen(false);
-                        }}
-                        style={{
-                          border: 'none',
-                          borderRadius: '9px',
-                          background: brandColor,
-                          color: brandInk,
-                          padding: '6px 11px',
-                          fontSize: '12px',
-                          fontWeight: 800,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        + أضف
-                      </button>
+                      {!isCatalogViewOnly && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            quickAddOrOpenModal(it, e);
+                            setMoodModalOpen(false);
+                          }}
+                          style={{
+                            border: 'none',
+                            borderRadius: '9px',
+                            background: brandColor,
+                            color: brandInk,
+                            padding: '6px 11px',
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          + أضف
+                        </button>
+                      )}
                     </div>
                   );
                 })}

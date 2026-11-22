@@ -13,6 +13,7 @@ import {
   Coins,
   Copy,
   ExternalLink,
+  Eye,
   Globe,
   Image as ImageIcon,
   Link2,
@@ -24,7 +25,6 @@ import {
   Moon,
   Phone,
   Plus,
-  Power,
   Send,
   Share2,
   SlidersHorizontal,
@@ -105,14 +105,12 @@ export const SettingsPage: React.FC = () => {
     restTagline,
     setRestTagline,
     restCurrency,
-    restActive,
-    setRestActive,
+    viewOnlyMode,
+    toggleViewOnlyMode,
+    toggleOrderType,
     allowDelivery,
-    setAllowDelivery,
     allowPickup,
-    setAllowPickup,
     allowTable,
-    setAllowTable,
     rest,
     activeRid,
     mainRid,
@@ -379,49 +377,6 @@ export const SettingsPage: React.FC = () => {
               {...dashSubTabMotion(prefersReducedMotion)}
               style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
             >
-              {/* Live Menu Status Hero Card */}
-              <div className={`mp-set2-hero ${restActive ? '' : 'is-paused'}`}>
-                <div className="mp-set2-hero-info">
-                  <div className="mp-set2-icon-box">
-                    <Power size={19} />
-                  </div>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: '15px', fontWeight: 900, color: 'var(--ink)' }}>
-                      {restActive
-                        ? terms.isStore
-                          ? 'المتجر مفعّل ويستقبل الطلبات'
-                          : 'المنيو مفعّل ويستقبل الطلبات'
-                        : terms.isStore
-                        ? 'المتجر متوقف مؤقتاً'
-                        : 'المنيو متوقف مؤقتاً'}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: '12px',
-                        fontWeight: 700,
-                        color: restActive ? '#10b981' : '#ef4444',
-                        marginTop: '2px',
-                      }}
-                    >
-                      {restActive
-                        ? 'يظهر للزبائن بشكل مباشر'
-                        : 'يظهر إشعار التوقف المؤقت للزوار'}
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={restActive}
-                  aria-label={terms.isStore ? 'حالة المتجر للزبائن' : 'حالة المنيو للزبائن'}
-                  onClick={() => setRestActive((v) => !v)}
-                  className={`ios-switch ${restActive ? 'on' : 'off'}`}
-                >
-                  <span className="ios-switch-thumb" />
-                </button>
-              </div>
-
               {/* Currency & Order Types Panel */}
               <div className="mp-set2-panel">
                 <div className="mp-set2-panel-head">
@@ -463,6 +418,33 @@ export const SettingsPage: React.FC = () => {
                     </select>
                   </div>
 
+                  {/* View-Only Catalog Mode */}
+                  <div className="mp-set2-row">
+                    <div className="mp-set2-row-meta">
+                      <div className="mp-set2-mini-ico">
+                        <Eye size={16} />
+                      </div>
+                      <div>
+                        <div className="mp-set2-row-label">
+                          {terms.isStore ? 'وضع العرض فقط (كتالوج بدون طلبات)' : 'وضع العرض فقط (بدون سلة وطلبات)'}
+                        </div>
+                        <div className="mp-set2-row-desc">
+                          عرض المنتجات والأسعار فقط دون سلة أو زر إضافة — يوقف خيارات الطلب أدناه
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={viewOnlyMode}
+                      aria-label="تفعيل وضع العرض فقط"
+                      onClick={toggleViewOnlyMode}
+                      className={`ios-switch sm ${viewOnlyMode ? 'on' : 'off'}`}
+                    >
+                      <span className="ios-switch-thumb" />
+                    </button>
+                  </div>
+
                   {/* Delivery */}
                   <div className="mp-set2-row">
                     <div className="mp-set2-row-meta">
@@ -494,7 +476,7 @@ export const SettingsPage: React.FC = () => {
                         role="switch"
                         aria-checked={allowDelivery}
                         aria-label="تفعيل طلبات التوصيل"
-                        onClick={() => setAllowDelivery((v) => !v)}
+                        onClick={() => toggleOrderType('delivery')}
                         className={`ios-switch sm ${allowDelivery ? 'on' : 'off'}`}
                       >
                         <span className="ios-switch-thumb" />
@@ -533,7 +515,7 @@ export const SettingsPage: React.FC = () => {
                         role="switch"
                         aria-checked={allowPickup}
                         aria-label={terms.isStore ? 'تفعيل الاستلام من المعرض' : 'تفعيل الحجز والاستلام'}
-                        onClick={() => setAllowPickup((v) => !v)}
+                        onClick={() => toggleOrderType('pickup')}
                         className={`ios-switch sm ${allowPickup ? 'on' : 'off'}`}
                       >
                         <span className="ios-switch-thumb" />
@@ -573,7 +555,7 @@ export const SettingsPage: React.FC = () => {
                           role="switch"
                           aria-checked={allowTable}
                           aria-label="تفعيل طلبات الطاولات"
-                          onClick={() => setAllowTable((v) => !v)}
+                          onClick={() => toggleOrderType('table')}
                           className={`ios-switch sm ${allowTable ? 'on' : 'off'}`}
                         >
                           <span className="ios-switch-thumb" />
@@ -583,14 +565,18 @@ export const SettingsPage: React.FC = () => {
                   )}
 
                   {/* Pre-orders when closed */}
-                  <div className="mp-set2-row">
+                  <div className="mp-set2-row" style={viewOnlyMode ? { opacity: 0.55 } : undefined}>
                     <div className="mp-set2-row-meta">
                       <div className="mp-set2-mini-ico">
                         <Moon size={16} />
                       </div>
                       <div>
                         <div className="mp-set2-row-label">استقبال الطلبات خارج الدوام</div>
-                        <div className="mp-set2-row-desc">السماح بالطلبات المسبقة عند الإغلاق</div>
+                        <div className="mp-set2-row-desc">
+                          {viewOnlyMode
+                            ? 'متوقف تلقائياً أثناء تفعيل وضع العرض فقط'
+                            : 'السماح بالطلبات المسبقة عند الإغلاق'}
+                        </div>
                       </div>
                     </div>
                     <button

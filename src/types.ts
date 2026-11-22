@@ -639,6 +639,7 @@ export interface Restaurant {
   mediaLibrary?: MediaLibraryItem[];
   tables?: any[];
   h?: RestaurantHours;
+  viewOnlyMode?: boolean;
   enabledOrderTypes?: {
     delivery?: boolean;
     pickup?: boolean;
