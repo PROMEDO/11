@@ -10290,6 +10290,12 @@ html[data-theme="dark"] .mp-items-count-box {
   cursor: pointer;
 }
 
+@media (min-width: 901px) {
+  .mp-sb-pwa-btn {
+    display: none !important;
+  }
+}
+
 .mp-sb-branch-select {
   width: 100%;
   min-height: 36px !important;

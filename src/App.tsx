@@ -33,6 +33,7 @@ import { detectClientSubdomain } from './utils/businessDefaults';
 import { checkAndNotifyPendingOrders, unlockBellAudio } from './utils/orderBell';
 import { isRunningStandalone } from './hooks/usePWAInstall';
 import { OfflineIndicator } from './components/DashboardPWAInstallPrompt';
+import { trackPublicVisit } from './utils/visitorTracker';
 
 const HomeView = lazy(() => import('./pages/Home').then((m) => ({ default: m.HomeView })));
 const AuthView = lazy(() => import('./pages/Login').then((m) => ({ default: m.AuthView })));
@@ -636,6 +637,18 @@ export default function App() {
       appleTitle.setAttribute('content', 'منيو بلس');
     }
   }, [route.page]);
+
+  useEffect(() => {
+    if (!initialSyncDoneRef.current) return;
+    const isMenuRoute =
+      route.page === 'menu' || Boolean(subdomainRestaurantId && route.page === 'home');
+    const isSiteRoute = !subdomainRestaurantId && route.page === 'home';
+    if (isMenuRoute) {
+      trackPublicVisit('menu');
+    } else if (isSiteRoute) {
+      trackPublicVisit('site');
+    }
+  }, [route, subdomainRestaurantId]);
 
   syncDashboardMotionFromSite(site, route.path);
 

@@ -18,11 +18,13 @@ import {
   Moon,
   RefreshCw,
   Sun,
+  Users,
   Wind,
 } from 'lucide-react';
 import { Session, StaffPermissions } from '../../types';
 import type { AdminTabId } from '../../utils/router';
 import { dashSectionMotion } from '../../utils/dashboardMotion';
+import { fetchAdminVisitorStatsApi } from '../../utils/adminApi';
 
 interface AdminHomeLoungeProps {
   session?: Session;
@@ -128,10 +130,46 @@ export const AdminHomeLounge: React.FC<AdminHomeLoungeProps> = () => {
     source: null,
   });
 
+  const [visitorStats, setVisitorStats] = useState<{
+    loading: boolean;
+    last24h: number | null;
+    total: number | null;
+  }>({
+    loading: true,
+    last24h: null,
+    total: null,
+  });
+
+  const loadVisitorStats = useCallback(async (silent = false) => {
+    if (!silent) {
+      setVisitorStats((prev) => ({ ...prev, loading: true }));
+    }
+    try {
+      const data = await fetchAdminVisitorStatsApi();
+      setVisitorStats({
+        loading: false,
+        last24h: Number.isFinite(data.last24h) ? data.last24h : 0,
+        total: Number.isFinite(data.total) ? data.total : 0,
+      });
+    } catch {
+      setVisitorStats((prev) => ({ ...prev, loading: false }));
+    }
+  }, []);
+
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    void loadVisitorStats(false);
+    const id = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        void loadVisitorStats(true);
+      }
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [loadVisitorStats]);
 
   const fetchWeatherForCoords = useCallback(
     async (lat: number, lon: number, fallbackCity: string, fallbackCountry: string, source: 'gps' | 'ip') => {
@@ -507,6 +545,141 @@ export const AdminHomeLounge: React.FC<AdminHomeLoungeProps> = () => {
               </div>
             </>
           )}
+        </motion.div>
+
+        {/* Simple Unique Visitors Card (Last 24h & Total) */}
+        <motion.div
+          className="card"
+          {...dashSectionMotion(prefersReducedMotion, 0.25)}
+          style={{
+            width: '100%',
+            padding: '18px 22px',
+            borderRadius: '20px',
+            background: 'color-mix(in srgb, var(--surface) 40%, transparent)',
+            backdropFilter: 'blur(14px) saturate(1.25)',
+            WebkitBackdropFilter: 'blur(14px) saturate(1.25)',
+            border: '1px solid color-mix(in srgb, var(--line) 72%, transparent)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '14px',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '8px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13.5px', fontWeight: 700, color: 'var(--ink)' }}>
+              <span
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '10px',
+                  background: 'var(--soft)',
+                  border: '1px solid var(--line)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  color: 'var(--brand-ink, var(--brand))',
+                  flexShrink: 0,
+                }}
+              >
+                <Users size={15} />
+              </span>
+              <span>زوار الموقع والمنيوات</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void loadVisitorStats(false)}
+              title="تحديث عداد الزوار"
+              aria-label="تحديث عداد الزوار"
+              disabled={visitorStats.loading}
+              style={{
+                background: 'none',
+                border: '1px solid var(--line)',
+                borderRadius: '9px',
+                padding: '4px 8px',
+                cursor: visitorStats.loading ? 'default' : 'pointer',
+                color: 'var(--muted)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '4px',
+                fontSize: '11.5px',
+              }}
+            >
+              <RefreshCw size={12} className={visitorStats.loading ? 'animate-spin' : undefined} />
+              <span>تحديث</span>
+            </button>
+          </div>
+
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: '10px',
+            }}
+          >
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '14px',
+                background: 'color-mix(in srgb, var(--soft) 72%, transparent)',
+                border: '1px solid var(--line)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <span className="muted" style={{ fontSize: '12px', fontWeight: 600 }}>
+                آخر 24 ساعة
+              </span>
+              <span
+                className="tabular-nums"
+                dir="ltr"
+                style={{
+                  fontSize: '26px',
+                  fontWeight: 900,
+                  color: 'var(--ink)',
+                  lineHeight: 1.15,
+                }}
+              >
+                {visitorStats.last24h !== null ? visitorStats.last24h.toLocaleString('en-US') : '—'}
+              </span>
+            </div>
+
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: '14px',
+                background: 'color-mix(in srgb, var(--soft) 72%, transparent)',
+                border: '1px solid var(--line)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '4px',
+              }}
+            >
+              <span className="muted" style={{ fontSize: '12px', fontWeight: 600 }}>
+                العدد الكلي
+              </span>
+              <span
+                className="tabular-nums"
+                dir="ltr"
+                style={{
+                  fontSize: '26px',
+                  fontWeight: 900,
+                  color: 'var(--ink)',
+                  lineHeight: 1.15,
+                }}
+              >
+                {visitorStats.total !== null ? visitorStats.total.toLocaleString('en-US') : '—'}
+              </span>
+            </div>
+          </div>
         </motion.div>
       </div>
     </div>

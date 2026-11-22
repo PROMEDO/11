@@ -10,10 +10,7 @@ import { AppLogo } from '../../components/AppLogo';
 import { AjaxConfirmModal } from '../../components/AjaxConfirmModal';
 import { PauseVisibilityModal } from '../../components/PauseVisibilityModal';
 import { BranchSwitcherModal } from '../../components/BranchSwitcherModal';
-import {
-  DashboardPWAInstallBanner,
-  DashboardSidebarInstallButton,
-} from '../../components/DashboardPWAInstallPrompt';
+import { DashboardSidebarInstallButton } from '../../components/DashboardPWAInstallPrompt';
 import { DEFAULT_SITE } from '../../utils/storage';
 import { dashTabMotion } from '../../utils/dashboardMotion';
 import {
@@ -206,14 +203,14 @@ const DashboardShell: React.FC = () => {
       <div className="sb-nav-divider" />
 
       <div className="sb-footer-inline">
-        <DashboardSidebarInstallButton
-          restaurantName={mainRest.n}
-          branchName={activeRid !== mainRid ? rest.branchName || rest.n : undefined}
-          showToast={showToast}
-          onAction={() => {
-            if (closeDrawer) setDrawerOpen(false);
-          }}
-        />
+        {closeDrawer && (
+          <DashboardSidebarInstallButton
+            restaurantName={mainRest.n}
+            branchName={activeRid !== mainRid ? rest.branchName || rest.n : undefined}
+            showToast={showToast}
+            onAction={() => setDrawerOpen(false)}
+          />
+        )}
 
         <button
           type="button"
@@ -453,12 +450,6 @@ const DashboardShell: React.FC = () => {
             </button>
           </div>
         </header>
-
-        <DashboardPWAInstallBanner
-          restaurantName={mainRest.n}
-          branchName={activeRid !== mainRid ? rest.branchName || rest.n : undefined}
-          showToast={showToast}
-        />
 
         <Suspense fallback={<TabFallback />}>
           <motion.div

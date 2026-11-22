@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, MoreVertical, Share, Smartphone, WifiOff, X } from 'lucide-react';
 import { useOnlineStatus, usePWAInstall } from '../hooks/usePWAInstall';
 
@@ -117,15 +118,20 @@ export const DashboardSidebarInstallButton: React.FC<
   const targetTitle = branchName ? `${restaurantName} (${branchName})` : restaurantName;
 
   const handleClick = async () => {
-    onAction?.();
     if (isInstallable) {
       const outcome = await install();
       if (outcome === 'accepted') {
         showToast('تم تثبيت لوحة التحكم كتطبيق بنجاح ✓');
+        onAction?.();
       }
       return;
     }
     setGuideOpen(true);
+  };
+
+  const handleCloseGuide = () => {
+    setGuideOpen(false);
+    onAction?.();
   };
 
   return (
@@ -136,14 +142,14 @@ export const DashboardSidebarInstallButton: React.FC<
         onClick={() => void handleClick()}
       >
         <Download size={17} style={{ color: 'var(--brand-ink, #10b981)', flexShrink: 0 }} />
-        <span>تثبيت لوحة التحكم كتطبيق</span>
+        <span>ثبّت لوحة التحكم كتطبيق</span>
       </button>
 
       {guideOpen && (
         <InstallGuideModal
           isIOS={isIOS}
           restaurantName={targetTitle}
-          onClose={() => setGuideOpen(false)}
+          onClose={handleCloseGuide}
         />
       )}
     </>
@@ -154,146 +160,151 @@ const InstallGuideModal: React.FC<{
   isIOS: boolean;
   restaurantName: string;
   onClose: () => void;
-}> = ({ isIOS, restaurantName, onClose }) => (
-  <div
-    className="mp-modal-backdrop"
-    dir="rtl"
-    role="dialog"
-    aria-modal="true"
-    onClick={onClose}
-    style={{
-      position: 'fixed',
-      inset: 0,
-      zIndex: 10050,
-      background: 'rgba(2, 6, 23, 0.68)',
-      backdropFilter: 'blur(8px)',
-      WebkitBackdropFilter: 'blur(8px)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '16px',
-    }}
-  >
+}> = ({ isIOS, restaurantName, onClose }) => {
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
-      onClick={(e) => e.stopPropagation()}
+      className="mp-modal-backdrop"
+      dir="rtl"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
       style={{
-        width: 'min(420px, 100%)',
-        borderRadius: '20px',
-        padding: '20px',
-        background: 'var(--surface, #0f172a)',
-        border: '1px solid var(--line)',
-        boxShadow: '0 24px 60px rgba(0, 0, 0, 0.45)',
-        color: 'var(--ink)',
+        position: 'fixed',
+        inset: 0,
+        zIndex: 10050,
+        background: 'rgba(2, 6, 23, 0.68)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '16px',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '12px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: 'min(420px, 100%)',
+          borderRadius: '20px',
+          padding: '20px',
+          background: 'var(--surface, #0f172a)',
+          border: '1px solid var(--line)',
+          boxShadow: '0 24px 60px rgba(0, 0, 0, 0.45)',
+          color: 'var(--ink)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div
+              style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '11px',
+                background: 'color-mix(in srgb, var(--brand) 16%, transparent)',
+                color: 'var(--brand-ink, var(--brand))',
+                display: 'grid',
+                placeItems: 'center',
+                flexShrink: 0,
+              }}
+            >
+              <Smartphone size={19} />
+            </div>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900 }}>
+                تثبيت لوحة التحكم كتطبيق
+              </h3>
+              <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--muted)' }}>
+                {restaurantName}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="إغلاق"
             style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: '11px',
-              background: 'color-mix(in srgb, var(--brand) 16%, transparent)',
-              color: 'var(--brand-ink, var(--brand))',
+              width: '32px',
+              height: '32px',
+              borderRadius: '9px',
+              border: '1px solid var(--line)',
+              background: 'transparent',
+              color: 'var(--muted)',
               display: 'grid',
               placeItems: 'center',
-              flexShrink: 0,
+              cursor: 'pointer',
             }}
           >
-            <Smartphone size={19} />
-          </div>
-          <div>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 900 }}>
-              تثبيت لوحة التحكم كتطبيق
-            </h3>
-            <p style={{ margin: '2px 0 0', fontSize: '12px', color: 'var(--muted)' }}>
-              {restaurantName}
-            </p>
-          </div>
+            <X size={16} />
+          </button>
         </div>
+
+        {isIOS ? (
+          <ol
+            style={{
+              margin: '12px 0 16px',
+              paddingInlineStart: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              fontSize: '13.5px',
+              lineHeight: 1.65,
+              color: 'var(--ink)',
+            }}
+          >
+            <li>
+              اضغط على زر <b>المشاركة</b>{' '}
+              <Share size={14} style={{ display: 'inline', verticalAlign: 'middle', color: 'var(--brand-ink, var(--brand))' }} />{' '}
+              في شريط متصفح Safari.
+            </li>
+            <li>
+              مرر للأسفل واختر <b>إضافة إلى الشاشة الرئيسية (Add to Home Screen)</b>.
+            </li>
+            <li>
+              اضغط <b>إضافة</b> — عند فتح التطبيق مستقبلاً سيدخلك مباشرة إلى لوحة التحكم والفرع الذي كنت تعمل عليه.
+            </li>
+          </ol>
+        ) : (
+          <ol
+            style={{
+              margin: '12px 0 16px',
+              paddingInlineStart: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '10px',
+              fontSize: '13.5px',
+              lineHeight: 1.65,
+              color: 'var(--ink)',
+            }}
+          >
+            <li>
+              افتح قائمة المتصفح{' '}
+              <MoreVertical size={14} style={{ display: 'inline', verticalAlign: 'middle' }} />{' '}
+              من الزاوية العلوية.
+            </li>
+            <li>
+              اختر <b>تثبيت التطبيق (Install App)</b> أو <b>الإضافة إلى الشاشة الرئيسية</b>.
+            </li>
+            <li>
+              بعد التثبيت، فتح التطبيق سيدخلك تلقائياً إلى لوحة التحكم الخاصة بك.
+            </li>
+          </ol>
+        )}
+
         <button
           type="button"
+          className="btn p"
           onClick={onClose}
-          aria-label="إغلاق"
-          style={{
-            width: '32px',
-            height: '32px',
-            borderRadius: '9px',
-            border: '1px solid var(--line)',
-            background: 'transparent',
-            color: 'var(--muted)',
-            display: 'grid',
-            placeItems: 'center',
-            cursor: 'pointer',
-          }}
+          style={{ width: '100%', height: '42px', borderRadius: '12px', fontWeight: 800 }}
         >
-          <X size={16} />
+          فهمت، حسناً
         </button>
       </div>
-
-      {isIOS ? (
-        <ol
-          style={{
-            margin: '12px 0 16px',
-            paddingInlineStart: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-            fontSize: '13.5px',
-            lineHeight: 1.65,
-            color: 'var(--ink)',
-          }}
-        >
-          <li>
-            اضغط على زر <b>المشاركة</b>{' '}
-            <Share size={14} style={{ display: 'inline', verticalAlign: 'middle', color: 'var(--brand-ink, var(--brand))' }} />{' '}
-            في شريط متصفح Safari.
-          </li>
-          <li>
-            مرر للأسفل واختر <b>إضافة إلى الشاشة الرئيسية (Add to Home Screen)</b>.
-          </li>
-          <li>
-            اضغط <b>إضافة</b> — عند فتح التطبيق مستقبلاً سيدخلك مباشرة إلى لوحة التحكم والفرع الذي كنت تعمل عليه.
-          </li>
-        </ol>
-      ) : (
-        <ol
-          style={{
-            margin: '12px 0 16px',
-            paddingInlineStart: '20px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '10px',
-            fontSize: '13.5px',
-            lineHeight: 1.65,
-            color: 'var(--ink)',
-          }}
-        >
-          <li>
-            افتح قائمة المتصفح{' '}
-            <MoreVertical size={14} style={{ display: 'inline', verticalAlign: 'middle' }} />{' '}
-            من الزاوية العلوية.
-          </li>
-          <li>
-            اختر <b>تثبيت التطبيق (Install App)</b> أو <b>الإضافة إلى الشاشة الرئيسية</b>.
-          </li>
-          <li>
-            بعد التثبيت، فتح التطبيق سيدخلك تلقائياً إلى لوحة التحكم الخاصة بك.
-          </li>
-        </ol>
-      )}
-
-      <button
-        type="button"
-        className="btn p"
-        onClick={onClose}
-        style={{ width: '100%', height: '42px', borderRadius: '12px', fontWeight: 800 }}
-      >
-        فهمت، حسناً
-      </button>
-    </div>
-  </div>
-);
+    </div>,
+    document.body
+  );
+};
 
 export const OfflineIndicator: React.FC = () => {
   const isOnline = useOnlineStatus();

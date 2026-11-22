@@ -28,6 +28,7 @@ const RESERVED_PREFIXES = [
   'telegram_users_db/',
   'settings/telegram_config',
   'settings/telegram_poll_state',
+  'settings/visitor_analytics_internal',
 ];
 const SAMPLE_PARTNER_MIGRATION_KEY = 'migrations/purged_sample_partners_v8';
 const HMO_MENUX_MIGRATION_KEY = 'migrations/hmo_menux_import_v1';

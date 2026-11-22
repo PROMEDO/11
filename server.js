@@ -1,6 +1,6 @@
 // server.ts
 import "dotenv/config";
-import crypto4 from "node:crypto";
+import crypto5 from "node:crypto";
 import express2 from "express";
 import compression from "compression";
 import fs5 from "node:fs";
@@ -322,7 +322,8 @@ var RESERVED_PREFIXES = [
   "user_sessions/",
   "telegram_users_db/",
   "settings/telegram_config",
-  "settings/telegram_poll_state"
+  "settings/telegram_poll_state",
+  "settings/visitor_analytics_internal"
 ];
 var SAMPLE_PARTNER_MIGRATION_KEY = "migrations/purged_sample_partners_v8";
 var HMO_MENUX_MIGRATION_KEY = "migrations/hmo_menux_import_v1";
@@ -3145,47 +3146,18 @@ var ORDER_TYPE_AR = {
   pickup: "\u0627\u0633\u062A\u0644\u0627\u0645 \u0630\u0627\u062A\u064A",
   table: "\u0637\u0644\u0628 \u0637\u0627\u0648\u0644\u0629"
 };
-function formatIraqOrderDateTime(tsRaw) {
-  const numericTs = Number(tsRaw || Date.now());
-  const dateObj = Number.isFinite(numericTs) && numericTs > 0 ? new Date(numericTs) : /* @__PURE__ */ new Date();
-  const timeZone = "Asia/Baghdad";
-  const timeParts = new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true
-  }).formatToParts(dateObj);
-  const hour = timeParts.find((p) => p.type === "hour")?.value || "12";
-  const minute = timeParts.find((p) => p.type === "minute")?.value || "00";
-  const dayPeriod = timeParts.find((p) => p.type === "dayPeriod")?.value || "";
-  const arPeriod = /pm/i.test(dayPeriod) ? "\u0645" : "\u0635";
-  const timeStr = `${hour}:${minute} ${arPeriod}`;
-  const dayNameAr = new Intl.DateTimeFormat("ar-IQ", {
-    timeZone,
-    weekday: "long"
-  }).format(dateObj);
-  const dateStr = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).format(dateObj);
-  return { timeStr, dayNameAr, dateStr };
-}
 function formatOrderTelegramMessage(restaurant, order, isTest = false) {
   const rawHeader = cachedTelegramConfig.orderHeaderText || DEFAULT_TELEGRAM_CONFIG.orderHeaderText;
   const header = isLegacyOrderHeaderText(rawHeader) ? DEFAULT_TELEGRAM_CONFIG.orderHeaderText : rawHeader;
   const footer = cachedTelegramConfig.orderFooterText || DEFAULT_TELEGRAM_CONFIG.orderFooterText;
-  const storeName = escapeHtml(restaurant.n || "\u0627\u0644\u0645\u062A\u062C\u0631");
-  const currency = escapeHtml(restaurant.currency || "\u062F.\u0639");
   const rawSeq = Number(order.seq ?? order.orderSeq ?? 0);
   const seqNumber = Number.isFinite(rawSeq) && rawSeq > 0 ? rawSeq : Math.max(1, (Number(restaurant.o || 0) || 0) + (isTest ? 1 : 0));
-  const { timeStr, dateStr } = formatIraqOrderDateTime(order.at);
   const cu = order.cu && typeof order.cu === "object" ? order.cu : {};
-  const customerName = escapeHtml(cu.n || order.name || "\u0632\u0628\u0648\u0646");
-  const customerPhone = escapeHtml(cu.ph || order.phone || "\u2014");
+  const customerName = escapeHtml(cu.n || order.name || "");
+  const customerPhone = escapeHtml(cu.ph || order.phone || "");
   const rawType = String(cu.orderType || order.type || "delivery");
   const typeLabel = ORDER_TYPE_AR[rawType] || rawType;
+  const typeEmoji = rawType === "delivery" ? "\u{1F6F5}" : rawType === "pickup" ? "\u{1F6CD}\uFE0F" : "\u{1F37D}\uFE0F";
   const tableNum = cu.table || order.table;
   const area = cu.area ? String(cu.area).trim() : "";
   const city = cu.city ? String(cu.city).trim() : "";
@@ -3200,14 +3172,33 @@ function formatOrderTelegramMessage(restaurant, order, isTest = false) {
   const itemsList = Array.isArray(order.items) ? order.items : [];
   let computedOrigSubtotal = 0;
   let computedSubtotal = 0;
+  for (const it of itemsList) {
+    const qty = Math.max(1, Number(it.q || 1));
+    const price = Number(it.p || 0);
+    const origPrice = Number(it.origPrice ?? it.origP ?? 0);
+    const hasItemDiscount = origPrice > price && origPrice > 0;
+    computedSubtotal += qty * price;
+    computedOrigSubtotal += qty * (hasItemDiscount ? origPrice : price);
+  }
+  const freeGiftName = String(order.freeGiftName || "").trim();
+  const scheduledSlot = String(order.scheduledSlot || "").trim();
+  const tipAmount = Number(order.tipAmount || 0);
+  const menuOrderDiscount = Number(order.menuOrderDiscount || 0);
+  const firstOrderDiscount = Number(order.firstOrderDiscount || 0);
+  const spinDiscount = Number(order.spinDiscount || 0);
+  const pickupDiscount = Number(order.pickupDiscount || 0);
+  const origSubtotal = Number(order.origSubtotal || 0) || computedOrigSubtotal;
+  const itemsDiscountTotal = Number(order.itemsDiscountTotal || 0) || Math.max(0, origSubtotal - computedSubtotal);
+  const orderLevelDiscountTotal = discount + menuOrderDiscount + firstOrderDiscount + spinDiscount + pickupDiscount;
+  const totalDiscount = Number(order.totalDiscount || 0) || itemsDiscountTotal + orderLevelDiscountTotal;
+  const discountedOrdersTotal = Math.max(0, computedSubtotal - orderLevelDiscountTotal);
+  const overallDiscPct = origSubtotal > 0 && totalDiscount > 0 ? Math.max(1, Math.round(totalDiscount / origSubtotal * 100)) : 0;
   const itemLines = itemsList.map((it) => {
     const qty = Math.max(1, Number(it.q || 1));
     const price = Number(it.p || 0);
     const origPrice = Number(it.origPrice ?? it.origP ?? 0);
     const hasItemDiscount = origPrice > price && origPrice > 0;
     const pct = Number(it.discountPct || 0) || (hasItemDiscount ? Math.max(1, Math.round((origPrice - price) / origPrice * 100)) : 0);
-    computedSubtotal += qty * price;
-    computedOrigSubtotal += qty * (hasItemDiscount ? origPrice : price);
     const parts = [
       it.size ? String(it.size) : "",
       ...Array.isArray(it.choices) ? it.choices.map(String) : [],
@@ -3216,93 +3207,54 @@ function formatOrderTelegramMessage(restaurant, order, isTest = false) {
     const optsText = parts.length > 0 ? ` <i>(${escapeHtml(parts.join("\u060C "))})</i>` : "";
     const itemNote = String(it.notes || "").trim();
     const noteLine = itemNote ? `
-   \u21B3 <i>${escapeHtml(itemNote)}</i>` : "";
-    const unitDiscountPart = hasItemDiscount ? ` \xB7 <s>${formatMoney(origPrice)}</s> (<b>\u062E\u0635\u0645 ${pct}%</b>)` : "";
-    return `\u2022 <b>${escapeHtml(it.n || "\u0645\u0646\u062A\u062C")}</b>${optsText} \xD7 ${qty} \u2014 \u0633\u0639\u0631 \u0627\u0644\u0637\u0628\u0642: ${formatMoney(price)} ${currency}${unitDiscountPart} = <b>${formatMoney(qty * price)} ${currency}</b>${noteLine}`;
+   \u21B3 <i>\u0645\u0644\u0627\u062D\u0638\u0629: ${escapeHtml(itemNote)}</i>` : "";
+    const effectiveItemDiscPct = pct > 0 ? pct : overallDiscPct;
+    const unitDiscountPart = effectiveItemDiscPct > 0 ? ` \u062E\u0635\u0645 ${effectiveItemDiscPct}% \u{1F6A8}` : "";
+    return `\u2022 <b>${escapeHtml(it.n || "\u0645\u0646\u062A\u062C")}</b>${optsText} (\u0639\u062F\u062F ${qty})${unitDiscountPart}${noteLine}`;
   });
-  const divider = "\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500";
+  const divider = "----------------";
   const lines = [];
   const cleanHeader = header.replace(/^🔔\s*/, "").trim() || "\u0637\u0644\u0628 \u062C\u062F\u064A\u062F";
-  lines.push(`\u{1F514} <b>${escapeHtml(cleanHeader)}</b> \u2014 ${storeName}`);
+  lines.push(`<b>${escapeHtml(cleanHeader)} \u{1F4CC}</b>`);
   if (isTest) {
     lines.push("<i>\u0637\u0644\u0628 \u062A\u062C\u0631\u064A\u0628\u064A \u0644\u0644\u062A\u062D\u0642\u0642 \u0645\u0646 \u0627\u0644\u0631\u0628\u0637</i>");
   }
+  lines.push(`<b>\u0627\u0644\u0646\u0648\u0639:</b> ${escapeHtml(typeLabel)} ${typeEmoji}`);
   lines.push(`<b>\u0631\u0642\u0645 \u0627\u0644\u0637\u0644\u0628:</b> <code>#${seqNumber}</code>`);
-  lines.push(`<b>\u0627\u0644\u0646\u0648\u0639:</b> ${escapeHtml(typeLabel)}${tableNum ? ` (\u0637\u0627\u0648\u0644\u0629 ${escapeHtml(tableNum)})` : ""}`);
-  lines.push(`<b>\u0627\u0644\u0648\u0642\u062A:</b> <code>${escapeHtml(timeStr)}</code> \xB7 <code>${escapeHtml(dateStr)}</code>`);
-  lines.push(divider);
-  lines.push(`<b>\u0627\u0644\u0632\u0628\u0648\u0646:</b> ${customerName}`);
-  lines.push(`<b>\u0627\u0644\u0647\u0627\u062A\u0641:</b> <code>${customerPhone}</code>`);
-  if (area || city || address) {
-    const rawLocParts = [city, area, address].filter(Boolean);
-    const dedupedLoc = [];
-    for (const part of rawLocParts) {
-      const existingIdx = dedupedLoc.findIndex(
-        (ex) => ex === part || ex.includes(part) || part.includes(ex)
-      );
-      if (existingIdx === -1) {
-        dedupedLoc.push(part);
-      } else if (part.length > dedupedLoc[existingIdx].length) {
-        dedupedLoc[existingIdx] = part;
-      }
-    }
-    lines.push(`<b>\u0627\u0644\u0639\u0646\u0648\u0627\u0646:</b> ${escapeHtml(dedupedLoc.join(" \u2014 "))}`);
+  if (tableNum) {
+    lines.push(`<b>\u0627\u0644\u0637\u0627\u0648\u0644\u0629:</b> ${escapeHtml(tableNum)}`);
   }
   if (itemLines.length > 0) {
+    lines.push("");
     lines.push(divider);
     lines.push(...itemLines);
+    lines.push(divider);
   }
-  const freeGiftName = String(order.freeGiftName || "").trim();
-  const scheduledSlot = String(order.scheduledSlot || "").trim();
-  const tipAmount = Number(order.tipAmount || 0);
-  const firstOrderDiscount = Number(order.firstOrderDiscount || 0);
-  const spinRewardLabel = String(order.spinRewardLabel || "").trim();
-  const spinDiscount = Number(order.spinDiscount || 0);
-  const pickupDiscount = Number(order.pickupDiscount || 0);
-  const pickupDiscountLabel = String(order.pickupDiscountLabel || "\u062E\u0635\u0645 \u0627\u0644\u0627\u0633\u062A\u0644\u0627\u0645 \u0627\u0644\u0641\u0648\u0631\u064A").trim();
-  const menuDiscountLabel = String(order.menuDiscountLabel || "").trim();
-  const origSubtotal = Number(order.origSubtotal || 0) || computedOrigSubtotal;
-  const itemsDiscountTotal = Number(order.itemsDiscountTotal || 0) || Math.max(0, origSubtotal - computedSubtotal);
-  const orderLevelDiscountTotal = discount + firstOrderDiscount + spinDiscount + pickupDiscount;
-  const totalDiscount = itemsDiscountTotal + orderLevelDiscountTotal;
-  const couponCode = String(order.couponCode || "").trim();
-  lines.push(divider);
-  if (origSubtotal > 0 && totalDiscount > 0) {
-    lines.push(`<b>\u0627\u0644\u0645\u062C\u0645\u0648\u0639 \u0642\u0628\u0644 \u0627\u0644\u062E\u0635\u0645:</b> ${formatMoney(origSubtotal)} ${currency}`);
-  } else if (computedSubtotal > 0) {
-    lines.push(`<b>\u0645\u062C\u0645\u0648\u0639 \u0627\u0644\u0623\u0637\u0628\u0627\u0642:</b> ${formatMoney(computedSubtotal)} ${currency}`);
+  if (notes) {
+    lines.push("");
+    lines.push(`<b>\u0645\u0644\u0627\u062D\u0638\u0627\u062A:</b> ${escapeHtml(notes)}`);
   }
-  if (itemsDiscountTotal > 0) {
+  lines.push("");
+  if (overallDiscPct > 0) {
     lines.push(
-      `<b>\u062E\u0635\u0645 \u0639\u0644\u0649 \u0627\u0644\u0623\u0637\u0628\u0627\u0642${menuDiscountLabel ? ` (${escapeHtml(menuDiscountLabel)})` : ""}:</b> -${formatMoney(itemsDiscountTotal)} ${currency}`
+      `<b>\u0633\u0639\u0631 \u0627\u0644\u0637\u0644\u0628\u0627\u062A:</b> ${formatMoney(discountedOrdersTotal)} (\u0645\u0639 \u0627\u0644\u062E\u0635\u0645 ${overallDiscPct}% \u{1F6A8})`
+    );
+  } else {
+    lines.push(`<b>\u0633\u0639\u0631 \u0627\u0644\u0637\u0644\u0628\u0627\u062A:</b> ${formatMoney(discountedOrdersTotal)}`);
+  }
+  if (rawType === "delivery") {
+    lines.push(
+      `<b>\u0627\u0644\u062A\u0648\u0635\u064A\u0644:</b> ${deliveryFee > 0 ? formatMoney(deliveryFee) : "\u0645\u062C\u0627\u0646\u064A"}`
     );
   }
-  if (deliveryFee > 0) {
-    lines.push(`<b>\u0627\u0644\u062A\u0648\u0635\u064A\u0644:</b> ${formatMoney(deliveryFee)} ${currency}`);
-  }
   if (serviceFee > 0) {
-    lines.push(`<b>\u0631\u0633\u0648\u0645 \u0627\u0644\u062E\u062F\u0645\u0629:</b> ${formatMoney(serviceFee)} ${currency}`);
+    lines.push(`<b>\u0631\u0633\u0648\u0645 \u0627\u0644\u062E\u062F\u0645\u0629:</b> ${formatMoney(serviceFee)}`);
   }
   if (tipAmount > 0) {
-    lines.push(`<b>\u0625\u0643\u0631\u0627\u0645\u064A\u0629:</b> ${formatMoney(tipAmount)} ${currency}`);
-  }
-  if (discount > 0) {
-    lines.push(`<b>\u062E\u0635\u0645 \u0639\u0644\u0649 \u0627\u0644\u0637\u0644\u0628${couponCode ? ` (${escapeHtml(couponCode)})` : ""}:</b> -${formatMoney(discount)} ${currency}`);
-  }
-  if (firstOrderDiscount > 0) {
-    lines.push(`<b>\u062E\u0635\u0645 \u0639\u0644\u0649 \u0627\u0644\u0637\u0644\u0628 (\u0627\u0644\u0637\u0644\u0628 \u0627\u0644\u0623\u0648\u0644):</b> -${formatMoney(firstOrderDiscount)} ${currency}`);
-  }
-  if (spinDiscount > 0) {
-    lines.push(`<b>\u062E\u0635\u0645 \u0639\u0644\u0649 \u0627\u0644\u0637\u0644\u0628 (\u0645\u0643\u0627\u0641\u0623\u0629${spinRewardLabel ? ` ${escapeHtml(spinRewardLabel)}` : ""}):</b> -${formatMoney(spinDiscount)} ${currency}`);
-  }
-  if (pickupDiscount > 0) {
-    lines.push(`<b>\u062E\u0635\u0645 \u0639\u0644\u0649 \u0627\u0644\u0637\u0644\u0628 (${escapeHtml(pickupDiscountLabel)}):</b> -${formatMoney(pickupDiscount)} ${currency}`);
-  }
-  if (totalDiscount > 0) {
-    lines.push(`<b>\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u062E\u0635\u0645:</b> -${formatMoney(totalDiscount)} ${currency}`);
+    lines.push(`<b>\u0625\u0643\u0631\u0627\u0645\u064A\u0629:</b> ${formatMoney(tipAmount)}`);
   }
   if (freeGiftName) {
-    lines.push(`<b>\u0647\u062F\u064A\u0629 \u0645\u062C\u0627\u0646\u064A\u0629:</b> ${escapeHtml(freeGiftName)}`);
+    lines.push(`<b>\u0627\u0644\u0647\u062F\u064A\u0629:</b> ${escapeHtml(freeGiftName)}`);
   }
   if (order.needCutlery === true) {
     lines.push("<b>\u0623\u062F\u0648\u0627\u062A \u0627\u0644\u0637\u0639\u0627\u0645:</b> \u0645\u0637\u0644\u0648\u0628\u0629");
@@ -3312,17 +3264,31 @@ function formatOrderTelegramMessage(restaurant, order, isTest = false) {
   if (scheduledSlot) {
     lines.push(`<b>\u0627\u0644\u0645\u0648\u0639\u062F:</b> ${escapeHtml(scheduledSlot)}`);
   }
-  lines.push(`<b>\u0627\u0644\u0625\u062C\u0645\u0627\u0644\u064A \u0627\u0644\u0646\u0647\u0627\u0626\u064A: ${formatMoney(total)} ${currency}</b>`);
-  if (notes) {
-    lines.push(`<b>\u0645\u0644\u0627\u062D\u0638\u0627\u062A:</b> ${escapeHtml(notes)}`);
+  lines.push(`<b>\u0627\u0644\u0645\u062C\u0645\u0648\u0639:</b> <b>${formatMoney(total)}</b>`);
+  const customerBlock = [];
+  if (rawType === "delivery") {
+    const areaFallback = area && city && area !== city && !area.includes(city) ? `${area} - ${city}` : area || city || "";
+    const addrText = address || areaFallback;
+    if (addrText) {
+      customerBlock.push(`<b>\u0627\u0644\u0639\u0646\u0648\u0627\u0646:</b> ${escapeHtml(addrText)}`);
+    }
   }
-  if (lat !== void 0 && lng !== void 0 && Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+  if (customerName) {
+    customerBlock.push(`<b>\u0627\u0644\u0632\u0628\u0648\u0646:</b> ${customerName}`);
+  }
+  if (customerPhone) {
+    customerBlock.push(`<b>\u0627\u0644\u0647\u0627\u062A\u0641:</b> <code>${customerPhone}</code>`);
+  }
+  if (rawType === "delivery" && lat !== void 0 && lng !== void 0 && Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
     const googleMapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
     const wazeUrl = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
-    lines.push(divider);
-    lines.push("\u{1F4CD} <b>\u0627\u0644\u0645\u0648\u0642\u0639:</b>");
-    lines.push(`Google Maps: <a href="${escapeHtml(googleMapsUrl)}">${escapeHtml(googleMapsUrl)}</a>`);
-    lines.push(`Waze: <a href="${escapeHtml(wazeUrl)}">${escapeHtml(wazeUrl)}</a>`);
+    if (customerBlock.length > 0) customerBlock.push("");
+    customerBlock.push(`\u{1F4CD} <b>\u062E\u0631\u0627\u0626\u0637 \u062C\u0648\u062C\u0644:</b> <a href="${escapeHtml(googleMapsUrl)}">${escapeHtml(googleMapsUrl)}</a>`);
+    customerBlock.push(`\u{1F697} <b>\u0648\u064A\u0632 (Waze):</b> <a href="${escapeHtml(wazeUrl)}">${escapeHtml(wazeUrl)}</a>`);
+  }
+  if (customerBlock.length > 0) {
+    lines.push("");
+    lines.push(...customerBlock);
   }
   if (footer && footer !== "\u062A\u0648\u0627\u0635\u0644 \u0645\u0639 \u0627\u0644\u0632\u0628\u0648\u0646 \u0623\u0648 \u062A\u0627\u0628\u0639 \u062A\u0641\u0627\u0635\u064A\u0644 \u0627\u0644\u0637\u0644\u0628 \u0645\u0646 \u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645.") {
     lines.push("");
@@ -6029,8 +5995,8 @@ function createAdminRouter() {
           error: "\u0643\u0644\u0645\u0629 \u0627\u0644\u0645\u0631\u0648\u0631 \u064A\u062C\u0628 \u0623\u0646 \u062A\u0643\u0648\u0646 8 \u062E\u0627\u0646\u0627\u062A \u0639\u0644\u0649 \u0627\u0644\u0623\u0642\u0644 (\u0623\u0631\u0642\u0627\u0645 \u0623\u0648 \u0623\u062D\u0631\u0641 \u0623\u0648 \u0631\u0645\u0648\u0632)"
         });
       }
-      const hashIdentifier = String(existing.username || existing.em || nextEmail || nextPhone || id).trim();
-      const nextPwHash = newPassword ? hashCredential(hashIdentifier, newPassword) : existing.pw;
+      const hashIdentifier2 = String(existing.username || existing.em || nextEmail || nextPhone || id).trim();
+      const nextPwHash = newPassword ? hashCredential(hashIdentifier2, newPassword) : existing.pw;
       let targetRid = existing.rid ? String(existing.rid) : void 0;
       let updatedRestaurantsList = restaurantsRes.items;
       const shouldUpdateRestaurant = hasPlanUpdate || hasLinkOrSocialUpdate || body.projectName !== void 0 || body.projectType !== void 0 || body.active !== void 0 || body.phone !== void 0;
@@ -7632,6 +7598,231 @@ function createAdminRouter() {
   return router;
 }
 
+// server/visitor-analytics.ts
+import crypto4 from "node:crypto";
+var VISITOR_STORE_KEY = "settings/visitor_analytics_internal";
+var DAY_MS = 24 * 60 * 60 * 1e3;
+var RETENTION_MS = 90 * DAY_MS;
+var MAX_STORED_RECORDS = 3e4;
+var FLUSH_DELAY_MS = 1500;
+var CRAWLER_UA_RE = /(googlebot|bingbot|yandexbot|baiduspider|duckduckbot|slurp|facebookexternalhit|twitterbot|slackbot|discordbot|telegrambot|whatsapp|semrushbot|ahrefsbot|petalbot|applebot|linkedinbot|pinterestbot)/i;
+function createEmptyDoc() {
+  return {
+    version: 1,
+    nextId: 1,
+    totalEver: 0,
+    visitors: {},
+    ipIndex: {},
+    devIndex: {}
+  };
+}
+var cachedDoc = null;
+var loadPromise = null;
+var dirty = false;
+var flushTimer = null;
+var activeFlush = null;
+function sanitizeDoc(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return createEmptyDoc();
+  }
+  const obj = raw;
+  const visitors = {};
+  if (obj.visitors && typeof obj.visitors === "object" && !Array.isArray(obj.visitors)) {
+    for (const [id, rec] of Object.entries(obj.visitors)) {
+      if (!rec || typeof rec !== "object") continue;
+      const f = Number(rec.f);
+      const l = Number(rec.l);
+      if (!Number.isFinite(f) || !Number.isFinite(l)) continue;
+      const cleaned = { f, l };
+      if (rec.s === 1) cleaned.s = 1;
+      if (rec.m === 1) cleaned.m = 1;
+      visitors[id] = cleaned;
+    }
+  }
+  const ipIndex = {};
+  if (obj.ipIndex && typeof obj.ipIndex === "object" && !Array.isArray(obj.ipIndex)) {
+    for (const [h, vid] of Object.entries(obj.ipIndex)) {
+      if (typeof vid === "string" && visitors[vid]) {
+        ipIndex[h] = vid;
+      }
+    }
+  }
+  const devIndex = {};
+  if (obj.devIndex && typeof obj.devIndex === "object" && !Array.isArray(obj.devIndex)) {
+    for (const [h, vid] of Object.entries(obj.devIndex)) {
+      if (typeof vid === "string" && visitors[vid]) {
+        devIndex[h] = vid;
+      }
+    }
+  }
+  const visitorCount = Object.keys(visitors).length;
+  const rawTotal = Number(obj.totalEver);
+  const totalEver = Number.isFinite(rawTotal) && rawTotal >= visitorCount ? rawTotal : visitorCount;
+  const rawNextId = Number(obj.nextId);
+  const nextId = Number.isFinite(rawNextId) && rawNextId >= 1 ? Math.floor(rawNextId) : visitorCount + 1;
+  return {
+    version: 1,
+    nextId,
+    totalEver,
+    visitors,
+    ipIndex,
+    devIndex
+  };
+}
+async function ensureLoaded() {
+  if (cachedDoc) return cachedDoc;
+  if (!loadPromise) {
+    loadPromise = getInternalStoreItem(VISITOR_STORE_KEY).then((raw) => {
+      cachedDoc = sanitizeDoc(raw);
+      return cachedDoc;
+    }).catch(() => {
+      cachedDoc = createEmptyDoc();
+      return cachedDoc;
+    }).finally(() => {
+      loadPromise = null;
+    });
+  }
+  return loadPromise;
+}
+async function flushVisitorAnalytics() {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  if (!cachedDoc || !dirty) return;
+  if (activeFlush) {
+    await activeFlush;
+    return;
+  }
+  dirty = false;
+  const snapshot = cachedDoc;
+  activeFlush = setInternalStoreItem(VISITOR_STORE_KEY, snapshot).catch((err) => {
+    dirty = true;
+    console.warn("[VisitorAnalytics] Failed to persist stats:", err?.message || err);
+  }).finally(() => {
+    activeFlush = null;
+  });
+  await activeFlush;
+}
+function scheduleFlush() {
+  dirty = true;
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    void flushVisitorAnalytics();
+  }, FLUSH_DELAY_MS);
+  flushTimer.unref?.();
+}
+function normalizeClientIp(rawIp) {
+  const first = String(rawIp || "").split(",")[0].trim().toLowerCase();
+  if (!first) return "";
+  const stripped = first.startsWith("::ffff:") ? first.slice(7) : first;
+  if (stripped === "::1" || stripped === "127.0.0.1" || stripped === "0.0.0.0") {
+    return "loopback";
+  }
+  if (stripped.length > 64) return "";
+  return stripped;
+}
+function sanitizeDeviceToken(rawToken) {
+  const token = String(rawToken || "").trim();
+  if (!/^[a-zA-Z0-9_-]{8,64}$/.test(token)) return "";
+  return token;
+}
+function hashIdentifier(kind, value) {
+  return crypto4.createHash("sha256").update(`mp_visitor_v1:${kind}:${value}`).digest("hex").slice(0, 20);
+}
+function pruneOldRecordsIfNeeded(doc, now) {
+  const entries = Object.entries(doc.visitors);
+  if (entries.length <= MAX_STORED_RECORDS) return;
+  const cutoff = now - RETENTION_MS;
+  const removedIds = /* @__PURE__ */ new Set();
+  for (const [id, rec] of entries) {
+    if (rec.l < cutoff) {
+      delete doc.visitors[id];
+      removedIds.add(id);
+    }
+  }
+  if (Object.keys(doc.visitors).length > MAX_STORED_RECORDS) {
+    const dayCutoff = now - DAY_MS;
+    const sorted = Object.entries(doc.visitors).filter(([, rec]) => rec.l < dayCutoff).sort((a, b) => a[1].l - b[1].l);
+    const excess = Object.keys(doc.visitors).length - MAX_STORED_RECORDS;
+    for (let i = 0; i < excess && i < sorted.length; i++) {
+      const id = sorted[i][0];
+      delete doc.visitors[id];
+      removedIds.add(id);
+    }
+  }
+  if (removedIds.size > 0) {
+    for (const [h, vid] of Object.entries(doc.ipIndex)) {
+      if (removedIds.has(vid)) delete doc.ipIndex[h];
+    }
+    for (const [h, vid] of Object.entries(doc.devIndex)) {
+      if (removedIds.has(vid)) delete doc.devIndex[h];
+    }
+  }
+}
+async function recordSiteOrMenuVisit(input) {
+  const ua = String(input.userAgent || "");
+  if (ua && CRAWLER_UA_RE.test(ua)) {
+    return { counted: false, isNewPerson: false };
+  }
+  const normalizedIp = normalizeClientIp(input.ip);
+  const cleanToken = sanitizeDeviceToken(input.visitorId);
+  if (!normalizedIp && !cleanToken) {
+    return { counted: false, isNewPerson: false };
+  }
+  const doc = await ensureLoaded();
+  const now = Date.now();
+  const ipHash = normalizedIp ? hashIdentifier("ip", normalizedIp) : "";
+  const devHash = cleanToken ? hashIdentifier("dev", cleanToken) : "";
+  const byDev = devHash ? doc.devIndex[devHash] : void 0;
+  const byIp = ipHash ? doc.ipIndex[ipHash] : void 0;
+  let personId = (byDev && doc.visitors[byDev] ? byDev : void 0) || (byIp && doc.visitors[byIp] ? byIp : void 0);
+  let isNewPerson = false;
+  if (!personId) {
+    personId = `v${doc.nextId++}`;
+    doc.totalEver += 1;
+    doc.visitors[personId] = {
+      f: now,
+      l: now,
+      ...input.scope === "site" ? { s: 1 } : { m: 1 }
+    };
+    isNewPerson = true;
+  } else {
+    const existing = doc.visitors[personId];
+    existing.l = now;
+    if (input.scope === "site") existing.s = 1;
+    if (input.scope === "menu") existing.m = 1;
+  }
+  if (ipHash) doc.ipIndex[ipHash] = personId;
+  if (devHash) doc.devIndex[devHash] = personId;
+  pruneOldRecordsIfNeeded(doc, now);
+  scheduleFlush();
+  return { counted: true, isNewPerson };
+}
+async function getVisitorAnalyticsStats() {
+  const doc = await ensureLoaded();
+  const now = Date.now();
+  const cutoff = now - DAY_MS;
+  let last24h = 0;
+  let siteLast24h = 0;
+  let menuLast24h = 0;
+  for (const rec of Object.values(doc.visitors)) {
+    if (rec.l >= cutoff) {
+      last24h += 1;
+      if (rec.s === 1) siteLast24h += 1;
+      if (rec.m === 1) menuLast24h += 1;
+    }
+  }
+  return {
+    last24h,
+    total: doc.totalEver,
+    siteLast24h,
+    menuLast24h,
+    updatedAt: now
+  };
+}
+
 // server.ts
 var __filename = fileURLToPath(import.meta.url);
 var __dirname = path5.dirname(__filename);
@@ -8596,7 +8787,7 @@ app.post("/api/reviews", otpRateLimiter, async (req, res) => {
     }
     const existingReviews = Array.isArray(rest.reviews) ? rest.reviews : [];
     const newReview = {
-      id: `rev_${Date.now().toString(36)}_${crypto4.randomBytes(2).toString("hex")}`,
+      id: `rev_${Date.now().toString(36)}_${crypto5.randomBytes(2).toString("hex")}`,
       name,
       rate,
       comment,
@@ -8796,7 +8987,7 @@ app.post("/api/customer-profile", async (req, res) => {
     const cookies = parseRequestCookies(req.headers.cookie);
     let custId = String(cookies[CUST_PROFILE_COOKIE] || req.headers["x-customer-profile-id"] || "").trim();
     if (!custId || !/^[a-zA-Z0-9_-]{8,64}$/.test(custId)) {
-      custId = `cust_${crypto4.randomBytes(12).toString("hex")}`;
+      custId = `cust_${crypto5.randomBytes(12).toString("hex")}`;
     }
     const body = req.body || {};
     const existing = await getInternalStoreItem(`${CUST_PROFILE_KV_PREFIX}${custId}`).catch(() => null);
@@ -8962,7 +9153,7 @@ app.post("/api/admin/fonts/upload", requireAdminOrStaff(), async (req, res) => {
         error: "\u0635\u064A\u063A\u0629 \u0645\u0644\u0641 \u0627\u0644\u062E\u0637 \u063A\u064A\u0631 \u0645\u062F\u0639\u0648\u0645\u0629. \u064A\u0631\u062C\u0649 \u0631\u0641\u0639 \u0645\u0644\u0641 \u062E\u0637 \u0628\u0635\u064A\u063A\u0629 .otf \u0623\u0648 .ttf \u0623\u0648 .woff2 \u0623\u0648 .woff"
       });
     }
-    const fileId = `font_${Date.now().toString(36)}_${crypto4.randomBytes(4).toString("hex")}`;
+    const fileId = `font_${Date.now().toString(36)}_${crypto5.randomBytes(4).toString("hex")}`;
     const numericWeight = Number(weight) === 0 ? 0 : Math.min(900, Math.max(100, Number(weight) || 400));
     if (!fs5.existsSync(FONTS_DISK_DIR)) {
       fs5.mkdirSync(FONTS_DISK_DIR, { recursive: true });
@@ -9059,6 +9250,98 @@ app.delete("/api/admin/fonts/:fileId", requireAdminOrStaff(), async (req, res) =
     return res.json({ ok: true });
   } catch (err) {
     return res.status(500).json({ ok: false, error: err?.message || "\u0641\u0634\u0644 \u062D\u0630\u0641 \u0645\u0644\u0641 \u0627\u0644\u062E\u0637" });
+  }
+});
+app.get("/api/pwa/dashboard-manifest.webmanifest", (req, res) => {
+  const rawBranchId = typeof req.query.branchId === "string" ? req.query.branchId.trim() : "";
+  const safeBranchId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawBranchId) ? rawBranchId : "";
+  const rawName = typeof req.query.name === "string" ? req.query.name.trim() : "";
+  const cleanName = rawName.replace(/[\r\n\t<>]/g, "").slice(0, 60);
+  const manifestId = safeBranchId ? `/dashboard/b/${safeBranchId}/` : "/dashboard/";
+  const startUrl = safeBranchId ? `/dashboard/b/${encodeURIComponent(safeBranchId)}/home?source=pwa` : "/dashboard/home?source=pwa";
+  const fullName = cleanName ? `\u0644\u0648\u062D\u0629 \u062A\u062D\u0643\u0645 ${cleanName}` : "\u0644\u0648\u062D\u0629 \u062A\u062D\u0643\u0645 \u0645\u0646\u064A\u0648 \u0628\u0644\u0633";
+  const shortNameSource = cleanName || "\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645";
+  const shortName = shortNameSource.length <= 12 ? shortNameSource : "\u0644\u0648\u062D\u0629 \u0627\u0644\u062A\u062D\u0643\u0645";
+  res.status(200).setHeader("Content-Type", "application/manifest+json; charset=utf-8").setHeader("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0").json({
+    id: manifestId,
+    name: fullName,
+    short_name: shortName,
+    description: "\u0644\u0648\u062D\u0629 \u062A\u062D\u0643\u0645 \u0645\u0646\u064A\u0648 \u0628\u0644\u0633 \u0644\u0625\u062F\u0627\u0631\u0629 \u0627\u0644\u0645\u0646\u064A\u0648 \u0648\u0627\u0644\u0641\u0631\u0648\u0639 \u0648\u0627\u0644\u0637\u0644\u0628\u0627\u062A \u0645\u0628\u0627\u0634\u0631\u0629.",
+    start_url: startUrl,
+    scope: "/",
+    display: "standalone",
+    orientation: "portrait-primary",
+    dir: "rtl",
+    lang: "ar",
+    theme_color: "#061c15",
+    background_color: "#061c15",
+    icons: [
+      {
+        src: "/pwa-192x192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any"
+      },
+      {
+        src: "/pwa-512x512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "any"
+      },
+      {
+        src: "/pwa-maskable-512x512.png",
+        sizes: "512x512",
+        type: "image/png",
+        purpose: "maskable"
+      }
+    ]
+  });
+});
+var visitRateWindowMs = 6e4;
+var visitRateMaxRequests = 60;
+var visitRateBuckets = /* @__PURE__ */ new Map();
+app.post("/api/analytics/visit", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const rawScope = typeof req.body?.scope === "string" ? req.body.scope.trim() : "";
+    const scope = rawScope === "menu" ? "menu" : rawScope === "site" ? "site" : "";
+    if (!scope) {
+      return res.status(400).json({ ok: false, error: "Invalid visit scope" });
+    }
+    const clientIp = req.ip || req.socket.remoteAddress || "";
+    const now = Date.now();
+    const cutoff = now - visitRateWindowMs;
+    const recent = (visitRateBuckets.get(clientIp) || []).filter((ts) => ts > cutoff);
+    if (recent.length >= visitRateMaxRequests) {
+      return res.status(200).json({ ok: true, throttled: true });
+    }
+    recent.push(now);
+    visitRateBuckets.set(clientIp, recent);
+    if (visitRateBuckets.size > 5e3) {
+      for (const [ip, tsList] of visitRateBuckets.entries()) {
+        if (!tsList.some((ts) => ts > cutoff)) visitRateBuckets.delete(ip);
+      }
+    }
+    const visitorId = typeof req.body?.visitorId === "string" ? req.body.visitorId.trim() : "";
+    const userAgent = typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : "";
+    await recordSiteOrMenuVisit({
+      ip: clientIp,
+      visitorId,
+      userAgent,
+      scope
+    });
+    return res.json({ ok: true });
+  } catch {
+    return res.status(200).json({ ok: false });
+  }
+});
+app.get("/api/admin/visitor-stats", requireAdminOrStaff(), async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  try {
+    const stats = await getVisitorAnalyticsStats();
+    return res.json({ ok: true, ...stats });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err?.message || "\u062A\u0639\u0630\u0631 \u062C\u0644\u0628 \u0625\u062D\u0635\u0627\u0626\u064A\u0627\u062A \u0627\u0644\u0632\u0648\u0627\u0631" });
   }
 });
 app.options("/api/*", (_req, res) => {
@@ -9238,6 +9521,14 @@ async function injectSeoMetaIntoHtml(html, req) {
     if (out.includes("</head>")) {
       out = out.replace("</head>", () => `  ${seoTags.join("\n  ")}
   </head>`);
+    }
+    if (req.path.startsWith("/dashboard")) {
+      const branchMatch = /^\/dashboard\/b\/([a-zA-Z0-9_-]+)/.exec(req.path);
+      const manifestHref = branchMatch ? `/api/pwa/dashboard-manifest.webmanifest?branchId=${encodeURIComponent(branchMatch[1])}` : "/api/pwa/dashboard-manifest.webmanifest";
+      out = out.replace(
+        /<link\s+rel="manifest"\s+href="[^"]*"\s*\/?>/i,
+        () => `<link rel="manifest" href="${escapeSeoAttr(manifestHref)}" />`
+      );
     }
     return out;
   } catch {
@@ -9877,6 +10168,7 @@ async function startServer() {
     console.log(`[Server] Received ${signal}, shutting down gracefully...`);
     stopTelegramBotPolling();
     clearInterval(otpCleanupTimer);
+    void flushVisitorAnalytics();
     server.close(() => {
       process.exit(0);
     });

@@ -64,6 +64,11 @@ import {
 } from './server/auth.ts';
 import { createAdminRouter } from './server/admin-routes.ts';
 import {
+  flushVisitorAnalytics,
+  getVisitorAnalyticsStats,
+  recordSiteOrMenuVisit,
+} from './server/visitor-analytics.ts';
+import {
   collectTakenMenuSlugs,
   createSubdomainRouter,
   extractPlansList,
@@ -1879,6 +1884,62 @@ app.get('/api/pwa/dashboard-manifest.webmanifest', (req, res) => {
     });
 });
 
+// ============================================================================
+// PUBLIC UNIQUE VISITOR TRACKING & ADMIN VISITOR STATS
+// ============================================================================
+const visitRateWindowMs = 60_000;
+const visitRateMaxRequests = 60;
+const visitRateBuckets = new Map<string, number[]>();
+
+app.post('/api/analytics/visit', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const rawScope = typeof req.body?.scope === 'string' ? req.body.scope.trim() : '';
+    const scope = rawScope === 'menu' ? 'menu' : rawScope === 'site' ? 'site' : '';
+    if (!scope) {
+      return res.status(400).json({ ok: false, error: 'Invalid visit scope' });
+    }
+
+    const clientIp = req.ip || req.socket.remoteAddress || '';
+    const now = Date.now();
+    const cutoff = now - visitRateWindowMs;
+    const recent = (visitRateBuckets.get(clientIp) || []).filter((ts) => ts > cutoff);
+    if (recent.length >= visitRateMaxRequests) {
+      return res.status(200).json({ ok: true, throttled: true });
+    }
+    recent.push(now);
+    visitRateBuckets.set(clientIp, recent);
+    if (visitRateBuckets.size > 5000) {
+      for (const [ip, tsList] of visitRateBuckets.entries()) {
+        if (!tsList.some((ts) => ts > cutoff)) visitRateBuckets.delete(ip);
+      }
+    }
+
+    const visitorId = typeof req.body?.visitorId === 'string' ? req.body.visitorId.trim() : '';
+    const userAgent = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : '';
+
+    await recordSiteOrMenuVisit({
+      ip: clientIp,
+      visitorId,
+      userAgent,
+      scope,
+    });
+    return res.json({ ok: true });
+  } catch {
+    return res.status(200).json({ ok: false });
+  }
+});
+
+app.get('/api/admin/visitor-stats', requireAdminOrStaff(), async (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const stats = await getVisitorAnalyticsStats();
+    return res.json({ ok: true, ...stats });
+  } catch (err: any) {
+    return res.status(500).json({ ok: false, error: err?.message || 'تعذر جلب إحصائيات الزوار' });
+  }
+});
+
 // 5. Handle OPTIONS preflight and unmatched API routes with JSON 404 instead of index.html
 app.options('/api/*', (_req, res) => {
   res.status(204).end();
@@ -2910,6 +2971,7 @@ async function startServer() {
     console.log(`[Server] Received ${signal}, shutting down gracefully...`);
     stopTelegramBotPolling();
     clearInterval(otpCleanupTimer);
+    void flushVisitorAnalytics();
     server.close(() => {
       process.exit(0);
     });

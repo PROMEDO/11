@@ -1010,3 +1010,23 @@ export async function verifyDashboardTelegramApi(rid: string): Promise<{
   });
   return parseApiJson(res);
 }
+
+export interface VisitorStatsResponse {
+  ok: boolean;
+  last24h: number;
+  total: number;
+  siteLast24h?: number;
+  menuLast24h?: number;
+  updatedAt?: number;
+}
+
+export async function fetchAdminVisitorStatsApi(): Promise<VisitorStatsResponse> {
+  const res = await fetch('/api/admin/visitor-stats', {
+    method: 'GET',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+    cache: 'no-store',
+  });
+  return parseApiJson(res);
+}
+
