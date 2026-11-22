@@ -636,6 +636,24 @@ export default function App() {
     if (appleTitle && appleTitle.getAttribute('content') !== 'منيو بلس') {
       appleTitle.setAttribute('content', 'منيو بلس');
     }
+    const appleTouchLinks = document.querySelectorAll('link[rel="apple-touch-icon"]');
+    appleTouchLinks.forEach((el) => {
+      const linkEl = el as HTMLLinkElement;
+      linkEl.setAttribute('sizes', '180x180');
+      if (linkEl.getAttribute('href') !== '/apple-touch-icon.png') {
+        linkEl.setAttribute('href', '/apple-touch-icon.png');
+      }
+    });
+    const iconLinks = document.querySelectorAll('link[rel="icon"]');
+    iconLinks.forEach((el, idx) => {
+      const linkEl = el as HTMLLinkElement;
+      const defaultHref = idx === 0 ? '/assets/aistudio/icon_f95f5a07.png' : '/pwa-192x192.png';
+      linkEl.setAttribute('type', 'image/png');
+      linkEl.setAttribute('sizes', idx === 0 ? '300x300' : '192x192');
+      if (linkEl.getAttribute('href') !== defaultHref) {
+        linkEl.setAttribute('href', defaultHref);
+      }
+    });
   }, [route.page]);
 
   useEffect(() => {

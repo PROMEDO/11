@@ -904,23 +904,68 @@ function useDashboardController({
     checkAndNotifyPendingOrders(rid, showToast, { isDashboardRoute: true });
   }, [rid, allOrders, showToast]);
 
-  // Keep dynamic PWA manifest pointed to this restaurant / branch dashboard so installation launches straight here
+  // Keep dynamic PWA manifest & icons pointed to this restaurant / branch dashboard and logo
+  const effectivePwaLogo = (rest.logo || mainRest?.logo || '').trim();
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    let logoHash = 'default';
+    if (effectivePwaLogo) {
+      let h = 2166136261;
+      for (let i = 0; i < effectivePwaLogo.length; i += 1) {
+        h ^= effectivePwaLogo.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+      }
+      logoHash = `${(h >>> 0).toString(16)}_${effectivePwaLogo.length}`;
+    }
+
     const params = new URLSearchParams();
+    params.set('rid', rid);
     if (rest.n) params.set('name', rest.n);
     if (rid !== mainRid) params.set('branchId', rid);
+    if (effectivePwaLogo) params.set('v', logoHash);
+
     const manifestHref = `/api/pwa/dashboard-manifest.webmanifest?${params.toString()}`;
     const manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
     if (manifestLink && manifestLink.getAttribute('href') !== manifestHref) {
       manifestLink.setAttribute('href', manifestHref);
     }
+
+    const iconHref = effectivePwaLogo
+      ? `/api/pwa/dashboard-icon?rid=${encodeURIComponent(rid)}&v=${encodeURIComponent(logoHash)}`
+      : '/apple-touch-icon.png';
+
+    const appleTouchLinks = document.querySelectorAll('link[rel="apple-touch-icon"]');
+    appleTouchLinks.forEach((el) => {
+      const linkEl = el as HTMLLinkElement;
+      if (effectivePwaLogo) {
+        linkEl.removeAttribute('sizes');
+      } else {
+        linkEl.setAttribute('sizes', '180x180');
+      }
+      if (linkEl.getAttribute('href') !== iconHref) {
+        linkEl.setAttribute('href', iconHref);
+      }
+    });
+
+    const pageIconHref = effectivePwaLogo ? iconHref : '/assets/aistudio/icon_f95f5a07.png';
+    const iconLinks = document.querySelectorAll('link[rel="icon"]');
+    iconLinks.forEach((el) => {
+      const linkEl = el as HTMLLinkElement;
+      if (effectivePwaLogo) {
+        linkEl.removeAttribute('sizes');
+        linkEl.removeAttribute('type');
+      }
+      if (linkEl.getAttribute('href') !== pageIconHref) {
+        linkEl.setAttribute('href', pageIconHref);
+      }
+    });
+
     const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
     const shortTitle = rest.n && rest.n.trim().length <= 12 ? rest.n.trim() : 'لوحة التحكم';
     if (appleTitle) {
       appleTitle.setAttribute('content', shortTitle);
     }
-  }, [rid, mainRid, rest.n]);
+  }, [rid, mainRid, rest.n, effectivePwaLogo]);
 
   // CATEGORIES STATE
   const [searchCatQuery, setSearchCatQuery] = useState('');

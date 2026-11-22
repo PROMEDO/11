@@ -69,6 +69,12 @@ import {
   recordSiteOrMenuVisit,
 } from './server/visitor-analytics.ts';
 import {
+  computePwaLogoVersion,
+  getFallbackPwaIcon,
+  getRestaurantRecordForPwa,
+  resolveRestaurantPwaIcon,
+} from './server/pwa-icon.ts';
+import {
   collectTakenMenuSlugs,
   createSubdomainRouter,
   extractPlansList,
@@ -1830,11 +1836,53 @@ app.delete('/api/admin/fonts/:fileId', requireAdminOrStaff(), async (req, res) =
   }
 });
 
-app.get('/api/pwa/dashboard-manifest.webmanifest', (req, res) => {
+app.get('/api/pwa/dashboard-icon', async (req, res) => {
+  const rawRid = typeof req.query.rid === 'string' ? req.query.rid.trim() : '';
   const rawBranchId = typeof req.query.branchId === 'string' ? req.query.branchId.trim() : '';
+  const safeQueryRid = /^[a-zA-Z0-9_-]{1,64}$/.test(rawRid) ? rawRid : '';
   const safeBranchId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawBranchId) ? rawBranchId : '';
+  const sessionRid = typeof req.authSession?.rid === 'string' ? req.authSession.rid.trim() : '';
+  const targetRid = safeBranchId || safeQueryRid || sessionRid;
+
+  try {
+    const allData = await readAll(false);
+    const iconInfo = await resolveRestaurantPwaIcon(allData, targetRid);
+    res
+      .status(200)
+      .setHeader('Content-Type', iconInfo.mimeType)
+      .setHeader('Cache-Control', 'public, max-age=3600')
+      .setHeader('X-Content-Type-Options', 'nosniff')
+      .send(iconInfo.buffer);
+  } catch {
+    const fallback = getFallbackPwaIcon();
+    res
+      .status(200)
+      .setHeader('Content-Type', fallback.mimeType)
+      .setHeader('Cache-Control', 'no-cache')
+      .send(fallback.buffer);
+  }
+});
+
+app.get('/api/pwa/dashboard-manifest.webmanifest', async (req, res) => {
+  const rawRid = typeof req.query.rid === 'string' ? req.query.rid.trim() : '';
+  const rawBranchId = typeof req.query.branchId === 'string' ? req.query.branchId.trim() : '';
+  const safeQueryRid = /^[a-zA-Z0-9_-]{1,64}$/.test(rawRid) ? rawRid : '';
+  const safeBranchId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawBranchId) ? rawBranchId : '';
+  const sessionRid = typeof req.authSession?.rid === 'string' ? req.authSession.rid.trim() : '';
+  const targetRid = safeBranchId || safeQueryRid || sessionRid;
+
   const rawName = typeof req.query.name === 'string' ? req.query.name.trim() : '';
-  const cleanName = rawName.replace(/[\r\n\t<>]/g, '').slice(0, 60);
+  const cleanQueryName = rawName.replace(/[\r\n\t<>]/g, '').slice(0, 60);
+
+  let allData: Record<string, unknown> = {};
+  try {
+    allData = await readAll(false);
+  } catch {
+    allData = {};
+  }
+
+  const { logo, name: dbName } = getRestaurantRecordForPwa(allData, targetRid);
+  const cleanName = cleanQueryName || dbName.replace(/[\r\n\t<>]/g, '').slice(0, 60);
 
   const manifestId = safeBranchId ? `/dashboard/b/${safeBranchId}/` : '/dashboard/';
   const startUrl = safeBranchId
@@ -1843,6 +1891,65 @@ app.get('/api/pwa/dashboard-manifest.webmanifest', (req, res) => {
   const fullName = cleanName ? `لوحة تحكم ${cleanName}` : 'لوحة تحكم منيو بلس';
   const shortNameSource = cleanName || 'لوحة التحكم';
   const shortName = shortNameSource.length <= 12 ? shortNameSource : 'لوحة التحكم';
+
+  let icons: Array<{ src: string; sizes: string; type: string; purpose: string }> = [
+    {
+      src: '/pwa-192x192.png',
+      sizes: '192x192',
+      type: 'image/png',
+      purpose: 'any',
+    },
+    {
+      src: '/pwa-512x512.png',
+      sizes: '512x512',
+      type: 'image/png',
+      purpose: 'any',
+    },
+    {
+      src: '/pwa-maskable-512x512.png',
+      sizes: '512x512',
+      type: 'image/png',
+      purpose: 'maskable',
+    },
+  ];
+
+  if (targetRid && logo) {
+    try {
+      const iconInfo = await resolveRestaurantPwaIcon(allData, targetRid);
+      if (iconInfo.isCustom && iconInfo.buffer.length > 0) {
+        const ver = computePwaLogoVersion(logo);
+        const iconSrc = `/api/pwa/dashboard-icon?rid=${encodeURIComponent(targetRid)}&v=${encodeURIComponent(ver)}`;
+        const hasLargeDimensions = iconInfo.width >= 144 && iconInfo.height >= 144;
+        if (hasLargeDimensions) {
+          icons = [
+            {
+              src: iconSrc,
+              sizes: `${iconInfo.width}x${iconInfo.height}`,
+              type: iconInfo.mimeType,
+              purpose: 'any',
+            },
+          ];
+        } else {
+          icons = [
+            {
+              src: iconSrc,
+              sizes: iconInfo.width > 0 && iconInfo.height > 0 ? `${iconInfo.width}x${iconInfo.height}` : '192x192',
+              type: iconInfo.mimeType,
+              purpose: 'any',
+            },
+            {
+              src: '/pwa-512x512.png',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+          ];
+        }
+      }
+    } catch {
+      // keep default platform icons
+    }
+  }
 
   res
     .status(200)
@@ -1861,26 +1968,7 @@ app.get('/api/pwa/dashboard-manifest.webmanifest', (req, res) => {
       lang: 'ar',
       theme_color: '#061c15',
       background_color: '#061c15',
-      icons: [
-        {
-          src: '/pwa-192x192.png',
-          sizes: '192x192',
-          type: 'image/png',
-          purpose: 'any',
-        },
-        {
-          src: '/pwa-512x512.png',
-          sizes: '512x512',
-          type: 'image/png',
-          purpose: 'any',
-        },
-        {
-          src: '/pwa-maskable-512x512.png',
-          sizes: '512x512',
-          type: 'image/png',
-          purpose: 'maskable',
-        },
-      ],
+      icons,
     });
 });
 
@@ -2149,13 +2237,47 @@ async function injectSeoMetaIntoHtml(html: string, req: Request): Promise<string
 
     if (req.path.startsWith('/dashboard')) {
       const branchMatch = /^\/dashboard\/b\/([a-zA-Z0-9_-]+)/.exec(req.path);
-      const manifestHref = branchMatch
-        ? `/api/pwa/dashboard-manifest.webmanifest?branchId=${encodeURIComponent(branchMatch[1])}`
+      const sessionRid = typeof req.authSession?.rid === 'string' ? req.authSession.rid.trim() : '';
+      const targetRid = branchMatch ? branchMatch[1] : sessionRid;
+      const { logo, name } = getRestaurantRecordForPwa(allData, targetRid);
+      const ver = computePwaLogoVersion(logo);
+
+      const manifestParams = new URLSearchParams();
+      if (targetRid) manifestParams.set('rid', targetRid);
+      if (branchMatch) manifestParams.set('branchId', branchMatch[1]);
+      if (name) manifestParams.set('name', name);
+      if (logo) manifestParams.set('v', ver);
+      const manifestQs = manifestParams.toString();
+      const manifestHref = manifestQs
+        ? `/api/pwa/dashboard-manifest.webmanifest?${manifestQs}`
         : '/api/pwa/dashboard-manifest.webmanifest';
+
       out = out.replace(
         /<link\s+rel="manifest"\s+href="[^"]*"\s*\/?>/i,
         () => `<link rel="manifest" href="${escapeSeoAttr(manifestHref)}" />`
       );
+
+      if (targetRid && logo) {
+        const iconHref = escapeSeoAttr(
+          `/api/pwa/dashboard-icon?rid=${encodeURIComponent(targetRid)}&v=${encodeURIComponent(ver)}`
+        );
+        out = out.replace(
+          /<link\s+rel="apple-touch-icon"[^>]*\/?>/gi,
+          () => `<link rel="apple-touch-icon" href="${iconHref}" />`
+        );
+        out = out.replace(
+          /<link\s+rel="icon"[^>]*\/?>/gi,
+          () => `<link rel="icon" href="${iconHref}" />`
+        );
+      }
+
+      if (name) {
+        const shortTitle = name.length <= 12 ? name : 'لوحة التحكم';
+        out = out.replace(
+          /<meta\s+name="apple-mobile-web-app-title"\s+content="[^"]*"\s*\/?>/i,
+          () => `<meta name="apple-mobile-web-app-title" content="${escapeSeoAttr(shortTitle)}" />`
+        );
+      }
     }
 
     return out;
