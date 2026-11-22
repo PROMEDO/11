@@ -23,6 +23,9 @@ import {
   AvailabilitySchedule,
   Category,
   DaySchedule,
+  ManualPauseBehavior,
+  ManualPauseConfig,
+  ManualPauseDurationPreset,
   MediaLibraryItem,
   MenuItem,
   MenuLayout,
@@ -66,6 +69,7 @@ import {
 
 export { playBellTone, unlockBellAudio };
 import { AjaxDialogState, INITIAL_AJAX_DIALOG } from '../../components/AjaxConfirmModal';
+import type { PauseModalTarget } from '../../components/PauseVisibilityModal';
 import {
   AddonCategoryFilter,
   AddonKey,
@@ -104,6 +108,8 @@ import {
 import { getBusinessTerms, isStoreProject } from '../../utils/terminology';
 import {
   DEFAULT_AVAILABILITY_SCHEDULE,
+  computePauseUntil,
+  isEntityManuallyPaused,
   normalizeAvailabilitySchedule,
   sanitizeAvailabilityScheduleForSave,
 } from '../../utils/availability';
@@ -113,6 +119,7 @@ export interface DashboardViewProps {
   plans: PricingPlan[];
   site?: SiteSettings;
   initialSubTab?: string;
+  initialBranchId?: string;
   onNavigate: (path: string) => void;
   onLogout: () => void;
   onRefresh: () => void;
@@ -325,16 +332,32 @@ function useDashboardController({
   plans,
   site,
   initialSubTab,
+  initialBranchId,
   onNavigate,
   onLogout,
   onRefresh,
   showToast,
 }: DashboardViewProps) {
   const mainRid = session.rid || 'demo';
+  const branchStorageKey = `mp_active_branch_${mainRid}`;
+  const branchSessionConfirmKey = `mp_dash_branch_confirmed_${mainRid}`;
+
+  const branchesList = getCollection<Restaurant>('restaurants').filter(
+    (r) => r.parentRid === mainRid
+  );
+
   const [activeRid, setActiveRidState] = useState<string>(() => {
+    const requested = String(initialBranchId || '').trim();
+    if (requested) {
+      if (requested === mainRid || branchesList.some((b) => b.id === requested)) {
+        return requested;
+      }
+    }
     try {
-      const saved = window.sessionStorage.getItem(`mp_active_branch_${mainRid}`);
-      if (saved) return saved;
+      const saved = window.localStorage.getItem(branchStorageKey);
+      if (saved && (saved === mainRid || branchesList.some((b) => b.id === saved))) {
+        return saved;
+      }
     } catch {
       // ignore storage errors
     }
@@ -344,31 +367,72 @@ function useDashboardController({
   const setActiveRid = (nextRid: string) => {
     setActiveRidState(nextRid);
     try {
-      window.sessionStorage.setItem(`mp_active_branch_${mainRid}`, nextRid);
+      window.localStorage.setItem(branchStorageKey, nextRid);
+      window.sessionStorage.setItem(branchSessionConfirmKey, '1');
     } catch {
       // ignore storage errors
     }
   };
 
-  // Reset active branch when logged account changes
-  useEffect(() => {
-    try {
-      const saved = window.sessionStorage.getItem(`mp_active_branch_${mainRid}`);
-      setActiveRidState(saved || mainRid);
-    } catch {
-      setActiveRidState(mainRid);
-    }
-  }, [mainRid]);
-
-  const branchesList = getCollection<Restaurant>('restaurants').filter(
-    (r) => r.parentRid === mainRid
-  );
+  const [branchModalOpen, setBranchModalOpen] = useState(false);
+  const [branchModalIsStartup, setBranchModalIsStartup] = useState(false);
 
   // Fallback to mainRid if active branch no longer exists
   const rid =
     activeRid === mainRid || branchesList.some((b) => b.id === activeRid)
       ? activeRid
       : mainRid;
+
+  // Synchronize branch from explicit URL, persistent localStorage, or prompt on fresh entry
+  useEffect(() => {
+    const requested = String(initialBranchId || '').trim();
+    if (requested) {
+      const isValidRequested = requested === mainRid || branchesList.some((b) => b.id === requested);
+      if (isValidRequested) {
+        if (activeRid !== requested) {
+          setActiveRidState(requested);
+        }
+        try {
+          window.localStorage.setItem(branchStorageKey, requested);
+          window.sessionStorage.setItem(branchSessionConfirmKey, '1');
+        } catch {
+          // ignore storage errors
+        }
+        return;
+      }
+    }
+
+    let saved = '';
+    try {
+      saved = window.localStorage.getItem(branchStorageKey) || '';
+    } catch {
+      // ignore storage errors
+    }
+
+    if (saved && saved !== mainRid && branchesList.some((b) => b.id === saved)) {
+      if (activeRid !== saved) {
+        setActiveRidState(saved);
+      }
+      const branchUrl = getDashboardTabPath(resolveTabFromSub(initialSubTab), saved);
+      if (window.location.pathname !== branchUrl) {
+        window.history.replaceState(null, '', `${branchUrl}${window.location.search || ''}`);
+      }
+      return;
+    }
+
+    if (branchesList.length > 0) {
+      let alreadyConfirmed = false;
+      try {
+        alreadyConfirmed = window.sessionStorage.getItem(branchSessionConfirmKey) === '1';
+      } catch {
+        alreadyConfirmed = false;
+      }
+      if (!alreadyConfirmed) {
+        setBranchModalIsStartup(true);
+        setBranchModalOpen(true);
+      }
+    }
+  }, [initialBranchId, mainRid, branchesList.length, branchStorageKey, branchSessionConfirmKey]);
 
   const rawMainRest: Restaurant = getItem<Restaurant>(`restaurants/${mainRid}`) || {
     id: mainRid,
@@ -438,22 +502,42 @@ function useDashboardController({
     }
   }, [initialSubTab]);
 
+  const activeBranchPathArg = rid === mainRid ? undefined : rid;
+
   useEffect(() => {
     try {
-      window.sessionStorage.setItem('mp_last_dash_path', getDashboardTabPath(activeTab));
+      window.sessionStorage.setItem('mp_last_dash_path', getDashboardTabPath(activeTab, activeBranchPathArg));
     } catch {
       // ignore storage errors
     }
-  }, [activeTab]);
+  }, [activeTab, activeBranchPathArg]);
 
   const setActiveTab = (tab: DashboardTab) => {
     setActiveTabState(tab);
-    onNavigate(getDashboardTabPath(tab));
+    onNavigate(getDashboardTabPath(tab, rid === mainRid ? undefined : rid));
   };
 
   const openSettingsSection = (section: SettingsSectionTab) => {
     setSettingsSectionTab(section);
     setActiveTab('set');
+  };
+
+  const openBranchSwitcherModal = () => {
+    setBranchModalIsStartup(false);
+    setBranchModalOpen(true);
+  };
+
+  const dismissBranchModal = () => {
+    setBranchModalOpen(false);
+    setBranchModalIsStartup(false);
+    try {
+      window.sessionStorage.setItem(branchSessionConfirmKey, '1');
+      if (!window.localStorage.getItem(branchStorageKey)) {
+        window.localStorage.setItem(branchStorageKey, rid);
+      }
+    } catch {
+      // ignore storage errors
+    }
   };
 
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -501,6 +585,7 @@ function useDashboardController({
 
   // AJAX Confirmation Modal State
   const [ajaxDialog, setAjaxDialog] = useState<AjaxDialogState>(INITIAL_AJAX_DIALOG);
+  const [pauseModalTarget, setPauseModalTarget] = useState<PauseModalTarget | null>(null);
   const triggerAjaxConfirm = (
     title: string,
     message: string,
@@ -541,10 +626,25 @@ function useDashboardController({
   const newOrdersCount = allOrders.filter((o) => o.st === 'new' || o.status === 'pending').length;
 
   // MULTI-BRANCH ACTIONS
-  const switchActiveBranch = (targetRid: string) => {
-    setActiveRid(targetRid);
+  const switchActiveBranch = async (targetRid: string) => {
+    const normalizedTarget =
+      targetRid === mainRid || branchesList.some((b) => b.id === targetRid) ? targetRid : mainRid;
+    setBranchModalOpen(false);
+    setBranchModalIsStartup(false);
     setIsItemEditorOpen(false);
-    showToast('تم تطبيق التغيرات');
+    setActiveRid(normalizedTarget);
+
+    try {
+      await flushPendingDbSync();
+    } catch {
+      // continue reload even if offline
+    }
+
+    const nextPath = getDashboardTabPath(
+      activeTab,
+      normalizedTarget === mainRid ? undefined : normalizedTarget
+    );
+    window.location.href = nextPath;
   };
 
   const cloneCatsAndItemsFromMain = (targetBranchRid: string) => {
@@ -644,7 +744,12 @@ function useDashboardController({
     }
     setActiveRid(newBranchId);
     onRefresh();
-    showToast('تم تطبيق التغيرات');
+    showToast('تم إنشاء الفرع وتفعيل لوحته المستقلة ✓');
+    void flushPendingDbSync()
+      .catch(() => {})
+      .finally(() => {
+        window.location.href = getDashboardTabPath('branches', newBranchId);
+      });
     return true;
   };
 
@@ -672,7 +777,7 @@ function useDashboardController({
       `هل أنت متأكد من حذف "${branchLabel}" وجميع أقسامه ومنتجاته نهائياً؟`,
       'danger',
       'تأكيد الحذف',
-      () => {
+      async () => {
         getCollection<Category>('cats')
           .filter((c) => c.rid === branchRid)
           .forEach((c) => deleteItem(`cats/${c.id}`));
@@ -682,6 +787,9 @@ function useDashboardController({
         deleteItem(`restaurants/${branchRid}`);
         if (activeRid === branchRid) {
           setActiveRid(mainRid);
+          await flushPendingDbSync().catch(() => {});
+          window.location.href = getDashboardTabPath('branches');
+          return;
         }
         onRefresh();
       },
@@ -795,6 +903,24 @@ function useDashboardController({
   useEffect(() => {
     checkAndNotifyPendingOrders(rid, showToast, { isDashboardRoute: true });
   }, [rid, allOrders, showToast]);
+
+  // Keep dynamic PWA manifest pointed to this restaurant / branch dashboard so installation launches straight here
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const params = new URLSearchParams();
+    if (rest.n) params.set('name', rest.n);
+    if (rid !== mainRid) params.set('branchId', rid);
+    const manifestHref = `/api/pwa/dashboard-manifest.webmanifest?${params.toString()}`;
+    const manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+    if (manifestLink && manifestLink.getAttribute('href') !== manifestHref) {
+      manifestLink.setAttribute('href', manifestHref);
+    }
+    const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    const shortTitle = rest.n && rest.n.trim().length <= 12 ? rest.n.trim() : 'لوحة التحكم';
+    if (appleTitle) {
+      appleTitle.setAttribute('content', shortTitle);
+    }
+  }, [rid, mainRid, rest.n]);
 
   // CATEGORIES STATE
   const [searchCatQuery, setSearchCatQuery] = useState('');
@@ -1945,14 +2071,19 @@ function useDashboardController({
   };
 
   const handleToggleCategoryVisibility = (cat: Category) => {
-    const currentlyOn = cat.published !== false;
-    const nextOn = !currentlyOn;
-    putItem<Category>(`cats/${cat.id}`, {
-      ...cat,
-      published: nextOn,
-    });
-    onRefresh();
-    showToast('تم تطبيق التغيرات');
+    const currentlyPaused = isEntityManuallyPaused(cat);
+    if (currentlyPaused) {
+      const nextCat: Category = {
+        ...cat,
+        published: true,
+      };
+      delete nextCat.manualPause;
+      putItem<Category>(`cats/${cat.id}`, nextCat);
+      onRefresh();
+      showToast('تم تفعيل القسم وإظهاره');
+      return;
+    }
+    setPauseModalTarget({ kind: 'category', id: cat.id, name: cat.n });
   };
 
   const handleSaveCategorySchedule = (cat: Category, schedule: AvailabilitySchedule) => {
@@ -1965,15 +2096,67 @@ function useDashboardController({
   };
 
   const handleToggleItemVisibility = (item: MenuItem) => {
-    const currentlyOn = item.published !== false && item.available !== false;
-    const nextOn = !currentlyOn;
-    putItem<MenuItem>(`items/${item.id}`, {
-      ...item,
-      published: nextOn,
-      available: nextOn,
-    });
+    const currentlyPaused = isEntityManuallyPaused(item);
+    if (currentlyPaused) {
+      const nextItem: MenuItem = {
+        ...item,
+        published: true,
+        available: true,
+      };
+      delete nextItem.manualPause;
+      putItem<MenuItem>(`items/${item.id}`, nextItem);
+      onRefresh();
+      showToast(terms.isStore ? 'تم تفعيل المنتج وإظهاره' : 'تم تفعيل العنصر وإظهاره');
+      return;
+    }
+    setPauseModalTarget({ kind: 'item', id: item.id, name: item.n });
+  };
+
+  const handleConfirmManualPause = (
+    preset: ManualPauseDurationPreset,
+    behavior: ManualPauseBehavior
+  ) => {
+    const target = pauseModalTarget;
+    if (!target) return;
+
+    const until = computePauseUntil(preset);
+    const manualPause: ManualPauseConfig = {
+      paused: true,
+      behavior,
+      preset,
+      until,
+      createdAt: Date.now(),
+    };
+    const isPermanentHide = behavior === 'hide' && until === null;
+
+    if (target.kind === 'category') {
+      const cat = allCategories.find((c) => c.id === target.id);
+      if (cat) {
+        putItem<Category>(`cats/${cat.id}`, {
+          ...cat,
+          published: isPermanentHide ? false : true,
+          manualPause,
+        });
+      }
+    } else {
+      const item = allItems.find((i) => i.id === target.id);
+      if (item) {
+        putItem<MenuItem>(`items/${item.id}`, {
+          ...item,
+          published: isPermanentHide ? false : true,
+          available: isPermanentHide ? false : true,
+          manualPause,
+        });
+      }
+    }
+
+    setPauseModalTarget(null);
     onRefresh();
-    showToast('تم تطبيق التغيرات');
+    showToast(
+      behavior === 'badge'
+        ? 'تم الإطفاء مع ظهور علامة غير متوفر'
+        : 'تم الإطفاء والإخفاء عن الزبائن'
+    );
   };
 
   const handleReorderItems = (nextOrderedSubsetIds: string[]) => {
@@ -2223,6 +2406,30 @@ function useDashboardController({
       : Number(formPrice) || 0;
     const catToUse = formCat || allCategories[0]?.id || 'default_cat';
     const existing = allItems.find((i) => i.id === targetItemId);
+    const wasPaused = existing ? isEntityManuallyPaused(existing) : false;
+    let nextPublished = formPublished;
+    let nextAvailable = formPublished;
+    let nextManualPause: ManualPauseConfig | undefined = existing?.manualPause;
+
+    if (formPublished) {
+      nextPublished = true;
+      nextAvailable = true;
+      nextManualPause = undefined;
+    } else if (wasPaused && existing) {
+      nextPublished = existing.published !== false;
+      nextAvailable = existing.available !== false;
+      nextManualPause = existing.manualPause;
+    } else {
+      nextPublished = false;
+      nextAvailable = false;
+      nextManualPause = {
+        paused: true,
+        behavior: 'hide',
+        preset: 'permanent',
+        until: null,
+        createdAt: Date.now(),
+      };
+    }
 
     return {
       ...(existing || {}),
@@ -2243,8 +2450,9 @@ function useDashboardController({
       choices: cleanChoices.length > 0 ? cleanChoices : [],
       maxChoices: cleanChoices.length > 0 ? Math.max(1, Number(formMaxChoices) || 1) : undefined,
       allergens: formAllergens.trim() || undefined,
-      available: formPublished,
-      published: formPublished,
+      available: nextAvailable,
+      published: nextPublished,
+      manualPause: nextManualPause,
       availabilitySchedule: sanitizeAvailabilityScheduleForSave(formSchedule),
       dineInOnly: formDineInOnly || undefined,
       noDelivery: formDineInOnly ? undefined : formNoDelivery || undefined,
@@ -2448,7 +2656,7 @@ function useDashboardController({
     const nextBadgeText = item.badges?.[0]?.text || '';
     const nextBadgeType = (item.badges?.[0]?.type as 'red' | 'gold' | 'green' | 'accent') || 'accent';
     const nextAllergens = Array.isArray(item.allergens) ? item.allergens.join('، ') : item.allergens || '';
-    const nextPub = item.published !== false && item.available !== false;
+    const nextPub = !isEntityManuallyPaused(item);
 
     hydratedItemEditSigRef.current = JSON.stringify({
       cat: item.cat,
@@ -3319,6 +3527,11 @@ function useDashboardController({
     rest,
     branchesList,
     switchActiveBranch,
+    branchModalOpen,
+    setBranchModalOpen,
+    branchModalIsStartup,
+    openBranchSwitcherModal,
+    dismissBranchModal,
     createBranch,
     cloneMainMenuToBranch,
     renameBranch,
@@ -3414,6 +3627,9 @@ function useDashboardController({
     handleDeleteCategory,
     handleReorderCategories,
     handleSaveCategorySchedule,
+    pauseModalTarget,
+    setPauseModalTarget,
+    handleConfirmManualPause,
     // Items
     searchItemQuery,
     setSearchItemQuery,

@@ -3,7 +3,15 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import type { AvailabilitySchedule, AvailabilityWindow, Category, MenuItem } from '../types';
+import type {
+  AvailabilitySchedule,
+  AvailabilityWindow,
+  Category,
+  ManualPauseBehavior,
+  ManualPauseConfig,
+  ManualPauseDurationPreset,
+  MenuItem,
+} from '../types';
 
 export const AVAILABILITY_DAYS = [
   { key: 'sat', label: 'السبت', short: 'السبت' },
@@ -198,6 +206,123 @@ export function isWithinAvailabilitySchedule(
   return false;
 }
 
+export interface ActiveManualPauseInfo {
+  paused: boolean;
+  behavior: ManualPauseBehavior;
+  preset?: ManualPauseDurationPreset;
+  until: number | null;
+  isTimed: boolean;
+}
+
+export function computePauseUntil(
+  preset: ManualPauseDurationPreset,
+  nowDate: Date = new Date()
+): number | null {
+  if (preset === '1h') {
+    return nowDate.getTime() + 60 * 60 * 1000;
+  }
+  if (preset === '2h') {
+    return nowDate.getTime() + 2 * 60 * 60 * 1000;
+  }
+  if (preset === 'end_of_day') {
+    return new Date(
+      nowDate.getFullYear(),
+      nowDate.getMonth(),
+      nowDate.getDate(),
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+  }
+  if (preset === 'end_of_week') {
+    // AVAILABILITY_DAYS runs Saturday (6) -> Friday (5)
+    const daysUntilFriday = (5 - nowDate.getDay() + 7) % 7;
+    return new Date(
+      nowDate.getFullYear(),
+      nowDate.getMonth(),
+      nowDate.getDate() + daysUntilFriday,
+      23,
+      59,
+      59,
+      999
+    ).getTime();
+  }
+  return null;
+}
+
+export function formatEpochTime12(epochMs: number): string {
+  const d = new Date(epochMs);
+  if (Number.isNaN(d.getTime())) return '';
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return formatHhmm12(hhmm);
+}
+
+export function getActiveManualPause(
+  entity?: (Pick<Category, 'published' | 'manualPause'> & { available?: boolean }) | null,
+  nowDate: Date = new Date()
+): ActiveManualPauseInfo | null {
+  if (!entity) return null;
+
+  const mp = entity.manualPause;
+  const nowMs = nowDate.getTime();
+  if (mp && mp.paused) {
+    const until = typeof mp.until === 'number' && Number.isFinite(mp.until) ? mp.until : null;
+    if (until === null || nowMs < until) {
+      return {
+        paused: true,
+        behavior: mp.behavior === 'badge' ? 'badge' : 'hide',
+        preset: mp.preset,
+        until,
+        isTimed: until !== null,
+      };
+    }
+    // Temporary pause expired -> treat as active unless legacy flags explicitly disabled it
+    if (until !== null && nowMs >= until) {
+      return null;
+    }
+  }
+
+  if (entity.published === false || entity.available === false) {
+    return {
+      paused: true,
+      behavior: mp?.behavior === 'badge' ? 'badge' : 'hide',
+      preset: mp?.preset || 'permanent',
+      until: null,
+      isTimed: false,
+    };
+  }
+
+  return null;
+}
+
+export function isEntityManuallyPaused(
+  entity?: (Pick<Category, 'published' | 'manualPause'> & { available?: boolean }) | null,
+  nowDate: Date = new Date()
+): boolean {
+  return Boolean(getActiveManualPause(entity, nowDate));
+}
+
+export function formatManualPauseStatusLabel(
+  pause: ActiveManualPauseInfo | ManualPauseConfig | null | undefined,
+  _nowDate: Date = new Date()
+): string {
+  if (!pause || !pause.paused) return '';
+  const prefix = pause.behavior === 'badge' ? 'غير متوفر' : 'مخفي';
+  const until = typeof pause.until === 'number' && Number.isFinite(pause.until) ? pause.until : null;
+  if (until === null) {
+    return pause.behavior === 'badge' ? 'غير متوفر للزبائن' : 'مخفي عن الزبائن';
+  }
+  if (pause.preset === 'end_of_day') {
+    return `${prefix} • لنهاية اليوم`;
+  }
+  if (pause.preset === 'end_of_week') {
+    return `${prefix} • لنهاية الأسبوع`;
+  }
+  const timeStr = formatEpochTime12(until);
+  return timeStr ? `${prefix} • حتى ${timeStr}` : prefix;
+}
+
 export interface CategoryAvailabilityResult {
   available: boolean;
   hidden: boolean;
@@ -221,16 +346,22 @@ export function evaluateCategoryAvailability(
       reasonText: '',
     };
   }
-  if (cat.published === false) {
+
+  const activePause = getActiveManualPause(cat, nowDate);
+  if (activePause) {
+    const hideCompletely = activePause.behavior !== 'badge';
     return {
       available: false,
-      hidden: true,
+      hidden: hideCompletely,
       outOfSchedule: false,
       hasSchedule: Boolean(cat.availabilitySchedule?.enabled),
-      badgeText: '',
-      reasonText: 'هذا القسم غير متاح حالياً',
+      badgeText: hideCompletely ? '' : 'غير متوفر حالياً',
+      reasonText: hideCompletely
+        ? 'هذا القسم غير متاح حالياً'
+        : `قسم "${cat.n}" غير متوفر حالياً`,
     };
   }
+
   const sched = cat.availabilitySchedule;
   if (!sched || !sched.enabled) {
     return {
@@ -282,10 +413,12 @@ export function evaluateItemAvailability(
   cat?: Category | null,
   nowDate: Date = new Date()
 ): ItemAvailabilityResult {
-  if (item.published === false || item.available === false) {
+  const activePause = getActiveManualPause(item, nowDate);
+  if (activePause) {
+    const hideCompletely = activePause.behavior !== 'badge';
     return {
       available: false,
-      hidden: true,
+      hidden: hideCompletely,
       outOfSchedule: false,
       hasSchedule: Boolean(item.availabilitySchedule?.enabled),
       badgeText: 'غير متوفر',
@@ -301,7 +434,7 @@ export function evaluateItemAvailability(
       hidden: catEval.hidden,
       outOfSchedule: catEval.outOfSchedule,
       hasSchedule: catEval.hasSchedule || Boolean(item.availabilitySchedule?.enabled),
-      badgeText: catEval.badgeText || 'خارج وقت التوفر',
+      badgeText: catEval.badgeText || (catEval.outOfSchedule ? 'خارج وقت التوفر' : 'غير متوفر'),
       reasonText: catEval.reasonText || 'هذا القسم غير متوفر في الوقت الحالي',
       source: 'category',
     };

@@ -36,7 +36,7 @@ export type ParsedRoute =
   | { page: 'signup'; path: '/signup' }
   | { page: 'forgot'; path: '/forgot' }
   | { page: 'onboard'; path: '/onboard' }
-  | { page: 'dashboard'; tab: DashboardTabId; isAppearanceShortcut?: boolean; path: string }
+  | { page: 'dashboard'; tab: DashboardTabId; branchId?: string; isAppearanceShortcut?: boolean; path: string }
   | { page: 'admin'; tab: AdminTabId; path: string }
   | { page: 'menu'; restaurantId: string; isSlug?: boolean; path: string };
 
@@ -113,8 +113,13 @@ function resolveAdminTab(sub: string): AdminTabId {
   return ADMIN_TABS.includes(sub as AdminTabId) ? (sub as AdminTabId) : 'home';
 }
 
-export function getDashboardTabPath(tab: DashboardTabId): string {
-  return `/dashboard/${DASHBOARD_TAB_TO_SEGMENT[tab] || 'home'}`;
+export function getDashboardTabPath(tab: DashboardTabId, branchId?: string): string {
+  const seg = DASHBOARD_TAB_TO_SEGMENT[tab] || 'home';
+  const cleanBranch = String(branchId || '').trim();
+  if (cleanBranch) {
+    return `/dashboard/b/${encodeURIComponent(cleanBranch)}/${seg}`;
+  }
+  return `/dashboard/${seg}`;
 }
 
 export function getAdminTabPath(tab: AdminTabId): string {
@@ -155,6 +160,17 @@ export function normalizeRouteTarget(target: string): string {
   }
 
   if (root === 'dashboard') {
+    if (sub === 'b' && segments[2]) {
+      let decodedBranch = segments[2];
+      try {
+        decodedBranch = decodeURIComponent(segments[2]);
+      } catch {
+        // keep raw segment
+      }
+      const tabSeg = segments[3] || 'home';
+      const mappedTab = DASHBOARD_SEGMENT_TO_TAB[tabSeg] || 'home';
+      return `${getDashboardTabPath(mappedTab, decodedBranch)}${suffix}`;
+    }
     const mappedTab = DASHBOARD_SEGMENT_TO_TAB[sub] || 'home';
     return `${getDashboardTabPath(mappedTab)}${suffix}`;
   }
@@ -210,6 +226,23 @@ export function parsePathRoute(pathname: string): ParsedRoute {
   if (root === 'onboard') return { page: 'onboard', path: '/onboard' };
 
   if (root === 'dashboard') {
+    if (sub === 'b' && segments[2]) {
+      let decodedBranch = segments[2];
+      try {
+        decodedBranch = decodeURIComponent(segments[2]);
+      } catch {
+        // keep raw segment
+      }
+      const tabSeg = segments[3] || 'home';
+      const tab = DASHBOARD_SEGMENT_TO_TAB[tabSeg] || 'home';
+      return {
+        page: 'dashboard',
+        tab,
+        branchId: decodedBranch,
+        isAppearanceShortcut: tabSeg === 'lay' || tabSeg === 'appearance',
+        path: getDashboardTabPath(tab, decodedBranch),
+      };
+    }
     const tab = DASHBOARD_SEGMENT_TO_TAB[sub] || 'home';
     return {
       page: 'dashboard',

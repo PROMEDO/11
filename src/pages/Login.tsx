@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
-import { PricingPlan, Session, SiteSettings } from '../types';
+import { PricingPlan, Restaurant, Session, SiteSettings } from '../types';
 import {
   flushRemoteSync,
   getCollection,
@@ -27,6 +27,27 @@ import {
 import { AppLogo } from '../components/AppLogo';
 import { DEFAULT_PLANS_V2 } from '../utils/plans';
 import { getSupportWhatsapp } from '../utils/businessDefaults';
+import { getDashboardTabPath } from '../utils/router';
+
+function resolvePostLoginDashboardPath(rid: string): string {
+  try {
+    const pending = window.sessionStorage.getItem('mp_post_login_path') || '';
+    if (pending.startsWith('/dashboard')) {
+      window.sessionStorage.removeItem('mp_post_login_path');
+      return pending;
+    }
+    const savedBranch = window.localStorage.getItem(`mp_active_branch_${rid}`) || '';
+    if (savedBranch && savedBranch !== rid) {
+      const branchRest = getItem<Restaurant>(`restaurants/${savedBranch}`);
+      if (branchRest?.parentRid === rid) {
+        return getDashboardTabPath('home', savedBranch);
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return '/dashboard/home';
+}
 
 interface AuthViewProps {
   mode: 'login' | 'signup' | 'forgot';
@@ -180,7 +201,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
         } else if (!serverRes.restaurant || serverRes.restaurant.done !== 1) {
           onNavigate('/onboard');
         } else {
-          onNavigate('/dashboard/home');
+          onNavigate(resolvePostLoginDashboardPath(serverRes.session.rid || serverRes.restaurant.id));
         }
         return;
       }
@@ -356,7 +377,7 @@ export const AuthView: React.FC<AuthViewProps> = ({
       if (!rest || rest.done !== 1) {
         onNavigate('/onboard');
       } else {
-        onNavigate('/dashboard/home');
+        onNavigate(resolvePostLoginDashboardPath(userSes.rid || matched.rid));
       }
     } catch {
       setError('حدث خطأ أثناء تسجيل الدخول، يرجى المحاولة مجدداً.');

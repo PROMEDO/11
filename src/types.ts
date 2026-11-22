@@ -677,6 +677,17 @@ export interface AvailabilitySchedule {
   behavior?: 'badge' | 'hide'; // 'badge' = show with time label & disable ordering; 'hide' = hide completely outside hours
 }
 
+export type ManualPauseDurationPreset = '1h' | '2h' | 'end_of_day' | 'end_of_week' | 'permanent';
+export type ManualPauseBehavior = 'badge' | 'hide';
+
+export interface ManualPauseConfig {
+  paused: boolean;
+  behavior: ManualPauseBehavior;
+  preset?: ManualPauseDurationPreset;
+  until?: number | null; // Epoch ms; null/undefined means permanent until manually re-enabled
+  createdAt?: number;
+}
+
 export interface Category {
   id: string;
   rid: string;
@@ -686,6 +697,7 @@ export interface Category {
   subtitle?: string;
   date?: string;
   published?: boolean;
+  manualPause?: ManualPauseConfig;
   availabilitySchedule?: AvailabilitySchedule;
   o?: number;
   [key: string]: any;
@@ -730,6 +742,7 @@ export interface MenuItem {
   date?: string;
   published?: boolean;
   available?: boolean;
+  manualPause?: ManualPauseConfig;
   availabilitySchedule?: AvailabilitySchedule;
   dineInOnly?: boolean;
   noDelivery?: boolean;

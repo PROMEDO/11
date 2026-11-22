@@ -7,8 +7,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, useReducedMotion } from 'motion/react';
 import {
+  Ban,
   Clock,
   Edit,
+  EyeOff,
   Image as ImageIcon,
   Plus,
   Sparkles,
@@ -20,6 +22,8 @@ import { AvailabilityScheduleEditor } from '../../components/AvailabilitySchedul
 import { MediaLibraryModal } from '../../components/MediaLibraryModal';
 import {
   DEFAULT_AVAILABILITY_SCHEDULE,
+  formatManualPauseStatusLabel,
+  getActiveManualPause,
   normalizeAvailabilitySchedule,
 } from '../../utils/availability';
 import {
@@ -61,6 +65,16 @@ export const CategoriesPage: React.FC = () => {
   const [scheduleDraft, setScheduleDraft] = useState<AvailabilitySchedule>(() =>
     normalizeAvailabilitySchedule(DEFAULT_AVAILABILITY_SCHEDULE)
   );
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const hasTimedPausedCats = allCategories.some(
+    (c) => c.manualPause?.paused && typeof c.manualPause.until === 'number'
+  );
+  useEffect(() => {
+    if (!hasTimedPausedCats) return;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 20000);
+    return () => window.clearInterval(timer);
+  }, [hasTimedPausedCats]);
 
   // Smooth touch + mouse pointer-drag reordering via the 6-dot handle
   const [draggingCatId, setDraggingCatId] = useState<string | null>(null);
@@ -241,7 +255,11 @@ export const CategoriesPage: React.FC = () => {
         {...dashSectionMotion(prefersReducedMotion, 0.12)}
       >
         {displayCategories.map((c) => {
-          const isCatVisible = c.published !== false;
+          const nowDate = new Date(nowMs);
+          const activePause = getActiveManualPause(c, nowDate);
+          const isCatVisible = !activePause;
+          const pauseStatusText = activePause ? formatManualPauseStatusLabel(activePause, nowDate) : '';
+          const isBadgePause = activePause?.behavior === 'badge';
           const isDragging = draggingCatId === c.id;
           const hasSchedule = Boolean(c.availabilitySchedule?.enabled);
           return (
@@ -289,6 +307,29 @@ export const CategoriesPage: React.FC = () => {
                 )}
                 <div className="mp-item-info">
                   <div className="mp-item-title">{c.n}</div>
+                  {pauseStatusText && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        padding: '2px 8px',
+                        borderRadius: '7px',
+                        fontSize: '11px',
+                        fontWeight: 700,
+                        background: isBadgePause
+                          ? 'rgba(245, 158, 11, 0.14)'
+                          : 'rgba(239, 68, 68, 0.12)',
+                        color: isBadgePause ? '#f59e0b' : '#ef4444',
+                        border: isBadgePause
+                          ? '1px solid rgba(245, 158, 11, 0.28)'
+                          : '1px solid rgba(239, 68, 68, 0.25)',
+                      }}
+                    >
+                      {isBadgePause ? <Ban size={11} /> : <EyeOff size={11} />}
+                      <span>{pauseStatusText}</span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -301,20 +342,18 @@ export const CategoriesPage: React.FC = () => {
                     aria-label={
                       isCatVisible
                         ? terms.isStore
-                          ? 'إخفاء القسم من المتجر'
-                          : 'إخفاء القسم من المنيو'
+                          ? 'إطفاء القسم في المتجر'
+                          : 'إطفاء القسم في المنيو'
                         : terms.isStore
-                        ? 'إظهار القسم في المتجر'
-                        : 'إظهار القسم في المنيو'
+                        ? 'تشغيل القسم في المتجر'
+                        : 'تشغيل القسم في المنيو'
                     }
                     title={
                       isCatVisible
                         ? terms.isStore
-                          ? 'ظاهر في المتجر — اضغط للإيقاف'
-                          : 'ظاهر في المنيو — اضغط للإيقاف'
-                        : terms.isStore
-                        ? 'مخفي من المتجر — اضغط للتشغيل'
-                        : 'مخفي من المنيو — اضغط للتشغيل'
+                          ? 'ظاهر في المتجر — اضغط للإطفاء'
+                          : 'ظاهر في المنيو — اضغط للإطفاء'
+                        : `${pauseStatusText || 'مطفأ'} — اضغط للتشغيل`
                     }
                     onClick={() => handleToggleCategoryVisibility(c)}
                     className={`ios-switch ${isCatVisible ? 'on' : 'off'}`}
@@ -322,7 +361,7 @@ export const CategoriesPage: React.FC = () => {
                     <span className="ios-switch-thumb" />
                   </button>
                   <span className={`mp-item-visibility-label ${isCatVisible ? 'is-visible' : ''}`}>
-                    {isCatVisible ? 'ظاهر' : 'مخفي'}
+                    {isCatVisible ? 'ظاهر' : isBadgePause ? 'غير متوفر' : 'مخفي'}
                   </span>
                 </div>
 

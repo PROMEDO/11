@@ -6,7 +6,9 @@
 import React, { useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import {
+  Check,
   CheckCircle2,
+  Copy,
   Edit2,
   ExternalLink,
   GitBranch,
@@ -14,9 +16,10 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { getCollection } from '../../utils/storage';
+import { copyTextReliable, getCollection } from '../../utils/storage';
 import { Category, MenuItem } from '../../types';
 import { getFullSubdomainUrl, getPublicMenuUrlPath } from '../../utils/businessDefaults';
+import { getDashboardTabPath } from '../../utils/router';
 import { surfaceCardStyle, themedInputStyle, useDashboard } from './DashboardContext';
 import {
   DASH_EASE,
@@ -53,6 +56,22 @@ export const BranchesPage: React.FC = () => {
   const [editingBranch, setEditingBranch] = useState<{ id: string; name: string; isMain: boolean } | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
+  const [copiedDashId, setCopiedDashId] = useState<string | null>(null);
+
+  const handleCopyBranchDashboardUrl = async (targetRid: string, label: string) => {
+    const path = getDashboardTabPath('home', targetRid === mainRid ? undefined : targetRid);
+    const fullUrl = `${window.location.origin}${path}`;
+    const ok = await copyTextReliable(fullUrl);
+    if (ok) {
+      setCopiedDashId(targetRid);
+      showToast(`تم نسخ رابط لوحة تحكم "${label}" ✓`);
+      window.setTimeout(() => {
+        setCopiedDashId((cur) => (cur === targetRid ? null : cur));
+      }, 2200);
+    } else {
+      showToast('تعذر نسخ الرابط، يرجى المحاولة مجدداً');
+    }
+  };
 
   const maxB = resolvedPlan.maxBranches;
   const isLocked = maxB === 0;
@@ -284,6 +303,27 @@ export const BranchesPage: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {!isManagingMain && (
+                      <button
+                        type="button"
+                        onClick={() => void switchActiveBranch(mainRid)}
+                        className="btn p"
+                        style={{ minHeight: '38px', fontWeight: 700 }}
+                      >
+                        <GitBranch size={14} />
+                        <span>فتح اللوحة</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyBranchDashboardUrl(mainRid, mainRest.n)}
+                      className="btn s"
+                      style={{ minHeight: '38px', fontWeight: 700 }}
+                      title="نسخ رابط لوحة تحكم الفرع الرئيسي"
+                    >
+                      {copiedDashId === mainRid ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}
+                      <span>{copiedDashId === mainRid ? 'تم النسخ' : 'نسخ رابط اللوحة'}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => openRenameModal(mainRid, mainRest.n, true)}
@@ -372,6 +412,27 @@ export const BranchesPage: React.FC = () => {
                   </div>
 
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    {!isManagingThis && (
+                      <button
+                        type="button"
+                        onClick={() => void switchActiveBranch(branch.id)}
+                        className="btn p"
+                        style={{ minHeight: '38px', fontWeight: 700 }}
+                      >
+                        <GitBranch size={14} />
+                        <span>فتح اللوحة</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleCopyBranchDashboardUrl(branch.id, branchLabel)}
+                      className="btn s"
+                      style={{ minHeight: '38px', fontWeight: 700 }}
+                      title="نسخ رابط لوحة تحكم هذا الفرع لإرسالها للأدمن"
+                    >
+                      {copiedDashId === branch.id ? <Check size={14} style={{ color: '#10b981' }} /> : <Copy size={14} />}
+                      <span>{copiedDashId === branch.id ? 'تم النسخ' : 'نسخ رابط اللوحة'}</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => openRenameModal(branch.id, branchLabel, false)}

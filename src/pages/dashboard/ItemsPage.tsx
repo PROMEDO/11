@@ -8,11 +8,13 @@ import { createPortal } from 'react-dom';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   AlertTriangle,
+  Ban,
   Check,
   ChevronLeft,
   ChevronRight,
   Clock,
   Edit,
+  EyeOff,
   Image as ImageIcon,
   Plus,
   ShieldCheck,
@@ -26,6 +28,8 @@ import { AvailabilityScheduleEditor } from '../../components/AvailabilitySchedul
 import { MediaLibraryModal } from '../../components/MediaLibraryModal';
 import {
   DEFAULT_AVAILABILITY_SCHEDULE,
+  formatManualPauseStatusLabel,
+  getActiveManualPause,
   normalizeAvailabilitySchedule,
 } from '../../utils/availability';
 import {
@@ -133,6 +137,16 @@ export const ItemsPage: React.FC = () => {
   const [scheduleDraft, setScheduleDraft] = useState<AvailabilitySchedule>(() =>
     normalizeAvailabilitySchedule(DEFAULT_AVAILABILITY_SCHEDULE)
   );
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const hasTimedPausedItems = allItems.some(
+    (it) => it.manualPause?.paused && typeof it.manualPause.until === 'number'
+  );
+  useEffect(() => {
+    if (!hasTimedPausedItems) return;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 20000);
+    return () => window.clearInterval(timer);
+  }, [hasTimedPausedItems]);
 
   // Smooth touch + mouse pointer-drag reordering via the 6-dot handle
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
@@ -1589,7 +1603,11 @@ export const ItemsPage: React.FC = () => {
       >
         {displayItems.map((item) => {
           const catObj = allCategories.find((c) => c.id === item.cat);
-          const isItemVisible = item.published !== false && item.available !== false;
+          const nowDate = new Date(nowMs);
+          const activePause = getActiveManualPause(item, nowDate);
+          const isItemVisible = !activePause;
+          const pauseStatusText = activePause ? formatManualPauseStatusLabel(activePause, nowDate) : '';
+          const isBadgePause = activePause?.behavior === 'badge';
           const isDragging = draggingItemId === item.id;
           const hasSchedule = Boolean(item.availabilitySchedule?.enabled);
           const sizesCount = (item.sizes || []).length;
@@ -1701,20 +1719,46 @@ export const ItemsPage: React.FC = () => {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      type="button"
-                      className="mp-item-price-btn"
-                      onClick={() => {
-                        setQuickPriceItemId(item.id);
-                        setQuickPriceDraft(String(item.pr ?? 0));
-                      }}
-                      title="اضغط للتعديل السريع على السعر"
-                    >
-                      <span className="tabular-nums">
-                        {sizesCount > 0 ? `من ${formatNumber(item.pr)} ${currency}` : `${formatNumber(item.pr)} ${currency}`}
-                      </span>
-                      <Edit size={12} style={{ opacity: 0.8, flexShrink: 0 }} />
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        className="mp-item-price-btn"
+                        onClick={() => {
+                          setQuickPriceItemId(item.id);
+                          setQuickPriceDraft(String(item.pr ?? 0));
+                        }}
+                        title="اضغط للتعديل السريع على السعر"
+                      >
+                        <span className="tabular-nums">
+                          {sizesCount > 0 ? `من ${formatNumber(item.pr)} ${currency}` : `${formatNumber(item.pr)} ${currency}`}
+                        </span>
+                        <Edit size={12} style={{ opacity: 0.8, flexShrink: 0 }} />
+                      </button>
+
+                      {pauseStatusText && (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            padding: '2px 8px',
+                            borderRadius: '7px',
+                            fontSize: '11px',
+                            fontWeight: 700,
+                            background: isBadgePause
+                              ? 'rgba(245, 158, 11, 0.14)'
+                              : 'rgba(239, 68, 68, 0.12)',
+                            color: isBadgePause ? '#f59e0b' : '#ef4444',
+                            border: isBadgePause
+                              ? '1px solid rgba(245, 158, 11, 0.28)'
+                              : '1px solid rgba(239, 68, 68, 0.25)',
+                          }}
+                        >
+                          {isBadgePause ? <Ban size={11} /> : <EyeOff size={11} />}
+                          <span>{pauseStatusText}</span>
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -1743,9 +1787,7 @@ export const ItemsPage: React.FC = () => {
                         ? terms.isStore
                           ? 'ظاهر في المتجر — اضغط للإطفاء'
                           : 'ظاهر في المنيو — اضغط للإطفاء'
-                        : terms.isStore
-                        ? 'مخفي من المتجر — اضغط للتشغيل'
-                        : 'مخفي من المنيو — اضغط للتشغيل'
+                        : `${pauseStatusText || 'مطفأ'} — اضغط للتشغيل`
                     }
                     onClick={() => handleToggleItemVisibility(item)}
                     className={`ios-switch ${isItemVisible ? 'on' : 'off'}`}
@@ -1753,7 +1795,7 @@ export const ItemsPage: React.FC = () => {
                     <span className="ios-switch-thumb" />
                   </button>
                   <span className={`mp-item-visibility-label ${isItemVisible ? 'is-visible' : ''}`}>
-                    {isItemVisible ? 'ظاهر' : 'مخفي'}
+                    {isItemVisible ? 'ظاهر' : isBadgePause ? 'غير متوفر' : 'مخفي'}
                   </span>
                 </div>
 

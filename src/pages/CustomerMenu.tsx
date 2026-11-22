@@ -7,6 +7,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useStat
 import {
   AlertTriangle,
   ArrowRight,
+  Ban,
   Car,
   Check,
   ChevronDown,
@@ -506,9 +507,12 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
     }
     canonical.href = canonicalUrl;
 
-    const restCats = getCollection<Category>('cats').filter((c) => c.rid === restaurantId && c.published !== false);
+    const seoNow = new Date();
+    const rawSeoCats = getCollection<Category>('cats').filter((c) => c.rid === restaurantId);
+    const seoCatMap = new Map<string, Category>(rawSeoCats.map((c) => [c.id, c]));
+    const restCats = rawSeoCats.filter((c) => !evaluateCategoryAvailability(c, seoNow).hidden);
     const restItems = getCollection<MenuItem>('items').filter(
-      (i) => i.rid === restaurantId && i.published !== false && i.available !== false
+      (i) => i.rid === restaurantId && !evaluateItemAvailability(i, seoCatMap.get(i.cat), seoNow).hidden
     );
 
     const schema = {
@@ -567,11 +571,17 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const hasScheduledMenuEntries = useMemo(() => {
     const hasScheduledCat = getCollection<Category>('cats').some(
-      (c) => c.rid === restaurantId && c.availabilitySchedule?.enabled
+      (c) =>
+        c.rid === restaurantId &&
+        (Boolean(c.availabilitySchedule?.enabled) ||
+          (c.manualPause?.paused && typeof c.manualPause.until === 'number'))
     );
     if (hasScheduledCat) return true;
     return getCollection<MenuItem>('items').some(
-      (i) => i.rid === restaurantId && i.availabilitySchedule?.enabled
+      (i) =>
+        i.rid === restaurantId &&
+        (Boolean(i.availabilitySchedule?.enabled) ||
+          (i.manualPause?.paused && typeof i.manualPause.until === 'number'))
     );
   }, [restaurantId, rest?.id]);
 
@@ -652,12 +662,15 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
       : undefined;
   const offerPopupLinkedItem = useMemo(() => {
     if (offerPopupMode !== 'dish' || !offerPopupItemId) return null;
-    return (
+    const candidate =
       getCollection<MenuItem>('items').find(
-        (it) => it.id === offerPopupItemId && it.rid === restaurantId && it.published !== false && it.available !== false
-      ) || null
-    );
-  }, [offerPopupMode, offerPopupItemId, restaurantId, rest?.id]);
+        (it) => it.id === offerPopupItemId && it.rid === restaurantId
+      ) || null;
+    if (!candidate) return null;
+    const parentCat = getCollection<Category>('cats').find((c) => c.id === candidate.cat) || null;
+    const evalRes = evaluateItemAvailability(candidate, parentCat, new Date(nowMs));
+    return evalRes.hidden ? null : candidate;
+  }, [offerPopupMode, offerPopupItemId, restaurantId, rest?.id, nowMs]);
   const offerPopupTitle =
     offerPopupCfg?.title || (offerPopupMode === 'dish' ? offerPopupLinkedItem?.n : '') || '';
   const offerPopupSubtitle =
@@ -2603,10 +2616,12 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                     const itemEval = itemEvalMap.get(it.id);
                     const displayOnly = isDisplayOnlyItem(it);
                     const unavailable = !displayOnly && (itemEval ? !itemEval.available : false);
+                    const showUnavailableBadge =
+                      unavailable || Boolean(itemEval && !itemEval.available && !itemEval.outOfSchedule);
                     return (
                       <article
                         key={`${heading}_${it.id}`}
-                        className={`pm-toters-shelf-card ${unavailable ? 'unavailable' : ''}`}
+                        className={`pm-toters-shelf-card ${showUnavailableBadge ? 'unavailable' : ''}`}
                         onClick={() => openProductModal(it)}
                       >
                         <div className="pm-toters-shelf-thumb">
@@ -2661,7 +2676,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                         </div>
                         <b className="pm-toters-shelf-title">{it.n}</b>
                         <span className="pm-toters-shelf-price tabular-nums">{priceInfo.main}</span>
-                        {unavailable && (
+                        {showUnavailableBadge && (
                           <span className="pm-item-unavailable-label">غير متوفر حالياً</span>
                         )}
                       </article>
@@ -2722,9 +2737,11 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                       />
                     )}
                     <span>{c.n}</span>
-                    {catEval?.outOfSchedule && (
+                    {catEval?.outOfSchedule ? (
                       <Clock size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                    )}
+                    ) : catEval && !catEval.available ? (
+                      <Ban size={11} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                    ) : null}
                   </button>
                 );
               })}
@@ -2758,6 +2775,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
               const catItems = allItems.filter((it) => it.cat === cat.id);
               if (catItems.length === 0) return null;
               const catEval = categoryEvalMap.get(cat.id);
+              const isManualCatBadgePause = Boolean(catEval && !catEval.available && !catEval.outOfSchedule);
 
               return (
                 <section
@@ -2768,7 +2786,25 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                   <div className="pm-sec-title" style={{ gap: '8px', flexWrap: 'wrap' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       <h2>{cat.n}</h2>
-                      {catEval?.hasSchedule && (
+                      {isManualCatBadgePause ? (
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            fontSize: '11px',
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            borderRadius: '8px',
+                            background: 'rgba(245, 158, 11, 0.14)',
+                            color: '#f59e0b',
+                            border: '1px solid rgba(245, 158, 11, 0.32)',
+                          }}
+                        >
+                          <Ban size={11} />
+                          <span>غير متوفر حالياً</span>
+                        </span>
+                      ) : catEval?.hasSchedule ? (
                         <span
                           style={{
                             display: 'inline-flex',
@@ -2794,7 +2830,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                               : `متوفر ${catEval.badgeText}`}
                           </span>
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <span style={{ fontSize: '12px', color: 'var(--pm-muted)', fontWeight: 600 }}>
                       {catItems.length} أصناف
@@ -2813,13 +2849,15 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                         const itemEval = itemEvalMap.get(it.id) || evaluateItemAvailability(it, cat, nowDate);
                         const displayOnly = isDisplayOnlyItem(it);
                         const unavailable = !displayOnly && !itemEval.available;
+                        const showUnavailableBadge =
+                          unavailable || (!itemEval.available && !itemEval.outOfSchedule);
 
                         if (isToters) {
                           const isPopular = popularItemIds.has(it.id);
                           return (
                             <article
                               key={it.id}
-                              className={`pm-toters-row ${unavailable ? 'unavailable' : ''}`}
+                              className={`pm-toters-row ${showUnavailableBadge ? 'unavailable' : ''}`}
                               onClick={() => openProductModal(it)}
                             >
                               {/* Start (Right in RTL): Title, Description, Price & Subtle Inline Tags */}
@@ -2837,7 +2875,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                                     </span>
                                   )}
                                 </div>
-                                {unavailable && (
+                                {showUnavailableBadge && (
                                   <span className="pm-item-unavailable-label">غير متوفر حالياً</span>
                                 )}
                               </div>
@@ -2900,7 +2938,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                         return (
                           <article
                             key={it.id}
-                            className={`pm-product-row ${unavailable ? 'unavailable' : ''}`}
+                            className={`pm-product-row ${showUnavailableBadge ? 'unavailable' : ''}`}
                             onClick={() => openProductModal(it)}
                           >
                             {/* Horizontal rectangular food image */}
@@ -2978,7 +3016,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                                     </span>
                                   )}
                                 </div>
-                                {unavailable && (
+                                {showUnavailableBadge && (
                                   <span className="pm-item-unavailable-label">غير متوفر حالياً</span>
                                 )}
                               </div>
@@ -3030,6 +3068,8 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                         const itemEval = itemEvalMap.get(it.id) || evaluateItemAvailability(it, cat, nowDate);
                         const displayOnly = isDisplayOnlyItem(it);
                         const unavailable = !displayOnly && !itemEval.available;
+                        const showUnavailableBadge =
+                          unavailable || (!itemEval.available && !itemEval.outOfSchedule);
                         const isCompact = layout === 'grid4' || layout === 'grid3';
 
                         return (
@@ -3038,7 +3078,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                             onClick={() => openProductModal(it)}
                             className="pm-menu-card"
                             style={{
-                              opacity: unavailable ? 0.52 : 1,
+                              opacity: showUnavailableBadge ? 0.52 : 1,
                             }}
                           >
                             <div className="pm-menu-card-media">
@@ -3111,7 +3151,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                                   </button>
                                 )}
                               </div>
-                              {unavailable && (
+                              {showUnavailableBadge && (
                                 <span className="pm-item-unavailable-label">غير متوفر حالياً</span>
                               )}
                             </div>
@@ -5626,7 +5666,20 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                     )}
                     <div>
                       <b style={{ fontSize: '14.5px', color: 'var(--pm-ink)', display: 'block' }}>{c.n}</b>
-                      {catEval?.hasSchedule && (
+                      {catEval && !catEval.available && !catEval.outOfSchedule ? (
+                        <span
+                          style={{
+                            fontSize: '11px',
+                            color: '#f59e0b',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                          }}
+                        >
+                          <Ban size={10} />
+                          <span>غير متوفر حالياً</span>
+                        </span>
+                      ) : catEval?.hasSchedule ? (
                         <span
                           style={{
                             fontSize: '11px',
@@ -5639,7 +5692,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                           <Clock size={10} />
                           <span>{catEval.badgeText}</span>
                         </span>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                   <span className="tabular-nums" style={{ color: accentText, fontWeight: 900 }}>
@@ -5694,11 +5747,13 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                   const searchItemEval = itemEvalMap.get(it.id);
                   const searchDisplayOnly = isDisplayOnlyItem(it);
                   const searchUnavailable = !searchDisplayOnly && (searchItemEval ? !searchItemEval.available : false);
+                  const searchShowUnavailable =
+                    searchUnavailable || Boolean(searchItemEval && !searchItemEval.available && !searchItemEval.outOfSchedule);
                   return (
                     <div
                       key={it.id}
                       className="pm-option-row"
-                      style={searchUnavailable ? { opacity: 0.62 } : undefined}
+                      style={searchShowUnavailable ? { opacity: 0.62 } : undefined}
                       onClick={() => {
                         setSearchOpen(false);
                         openProductModal(it);
@@ -5728,7 +5783,7 @@ const PublicMenuContent: React.FC<PublicMenuContentProps> = ({
                               </span>
                             )}
                           </div>
-                          {searchUnavailable && (
+                          {searchShowUnavailable && (
                             <span className="pm-item-unavailable-label">غير متوفر حالياً</span>
                           )}
                         </div>
@@ -6413,50 +6468,69 @@ export const PublicMenuView: React.FC<PublicMenuViewProps> = ({
 
   const hasMultipleBranches = allFamilyBranches.length >= 2;
   const prefKey = `menuplus_selected_branch_${rootRid}`;
+  const BRANCH_SELECTION_TTL_MS = 12 * 60 * 60 * 1000;
+  const isDirectSubBranchEntry = Boolean(entryRest?.isBranch && entryRest.id !== rootRid);
 
   const readSavedBranchId = (): string | null => {
     try {
-      const saved = window.localStorage.getItem(prefKey);
-      if (saved && allFamilyBranches.some((b) => b.id === saved)) {
-        return saved;
+      const raw = window.localStorage.getItem(prefKey);
+      if (!raw) return null;
+      if (raw.startsWith('{')) {
+        const parsed = JSON.parse(raw) as { branchId?: string; selectedAt?: number; expiresAt?: number };
+        const bid = typeof parsed?.branchId === 'string' ? parsed.branchId : '';
+        const exp =
+          typeof parsed?.expiresAt === 'number'
+            ? parsed.expiresAt
+            : typeof parsed?.selectedAt === 'number'
+            ? parsed.selectedAt + BRANCH_SELECTION_TTL_MS
+            : 0;
+        if (!bid || !exp || Date.now() >= exp) {
+          window.localStorage.removeItem(prefKey);
+          return null;
+        }
+        return allFamilyBranches.some((b) => b.id === bid) ? bid : null;
       }
+      // Legacy plain ID without timestamp: clear so a fresh 12-hour choice runs
+      window.localStorage.removeItem(prefKey);
+      return null;
     } catch {
-      // ignore storage errors
+      return null;
     }
-    return null;
   };
 
   const [selectedBranchId, setSelectedBranchId] = useState<string>(() => {
-    if (isFamilyOwner) return restaurantId;
+    if (isFamilyOwner && isDirectSubBranchEntry) return restaurantId;
     return readSavedBranchId() || restaurantId;
   });
 
   useEffect(() => {
-    if (isFamilyOwner) {
+    if (isFamilyOwner && isDirectSubBranchEntry) {
       setSelectedBranchId(restaurantId);
       return;
     }
     const saved = readSavedBranchId();
     setSelectedBranchId(saved || restaurantId);
-  }, [restaurantId, rootRid, isFamilyOwner]);
+  }, [restaurantId, rootRid, isFamilyOwner, isDirectSubBranchEntry]);
 
   useEffect(() => {
     if (!hasMultipleBranches) {
       setBranchPickerOpen(false);
       return;
     }
+    if (isFamilyOwner && isDirectSubBranchEntry) {
+      return;
+    }
     const saved = readSavedBranchId();
     if (saved) {
-      if (!isFamilyOwner) {
-        setSelectedBranchId(saved);
-      }
+      setSelectedBranchId(saved);
+      setBranchPickerOpen(false);
       return;
     }
     if (autoPromptedRootRef.current !== rootRid) {
       autoPromptedRootRef.current = rootRid;
       setBranchPickerOpen(true);
     }
-  }, [hasMultipleBranches, rootRid, syncTick, isFamilyOwner]);
+  }, [hasMultipleBranches, rootRid, syncTick, isFamilyOwner, isDirectSubBranchEntry]);
 
   const effectiveRestaurantId =
     hasMultipleBranches && allFamilyBranches.some((b) => b.id === selectedBranchId)
@@ -6482,8 +6556,16 @@ export const PublicMenuView: React.FC<PublicMenuViewProps> = ({
   const modalBrandInk = getContrastInk(modalBrand);
 
   const handleChooseBranch = (branchId: string) => {
+    const now = Date.now();
     try {
-      window.localStorage.setItem(prefKey, branchId);
+      window.localStorage.setItem(
+        prefKey,
+        JSON.stringify({
+          branchId,
+          selectedAt: now,
+          expiresAt: now + BRANCH_SELECTION_TTL_MS,
+        })
+      );
     } catch {
       // ignore storage errors
     }

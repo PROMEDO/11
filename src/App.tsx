@@ -24,12 +24,15 @@ import {
 import { syncDashboardMotionFromSite } from './utils/dashboardMotion';
 import {
   ParsedRoute,
+  getDashboardTabPath,
   migrateLegacyHashToPath,
   normalizeRouteTarget,
   parsePathRoute,
 } from './utils/router';
 import { detectClientSubdomain } from './utils/businessDefaults';
 import { checkAndNotifyPendingOrders, unlockBellAudio } from './utils/orderBell';
+import { isRunningStandalone } from './hooks/usePWAInstall';
+import { OfflineIndicator } from './components/DashboardPWAInstallPrompt';
 
 const HomeView = lazy(() => import('./pages/Home').then((m) => ({ default: m.HomeView })));
 const AuthView = lazy(() => import('./pages/Login').then((m) => ({ default: m.AuthView })));
@@ -137,27 +140,110 @@ export default function App() {
         return;
       }
 
-      // Redirect already-authenticated users away from login
-      if (parsed.page === 'login' && (curSession?.rid || curSession?.admin)) {
-        if (curSession.admin) {
+      // PWA standalone launch: send user directly into dashboard (preserving last active branch)
+      const isPwaSource =
+        typeof window !== 'undefined' &&
+        (isRunningStandalone() || new URLSearchParams(search || '').get('source') === 'pwa');
+
+      if (parsed.page === 'home' && !parsed.scrollSection && !window.__MENUPLUS_SUBDOMAIN__ && isPwaSource) {
+        if (curSession?.admin && curSession.menuLoggedOut && !curSession.rid) {
           window.history.replaceState(null, '', '/admin/home');
           setRoute({ page: 'admin', tab: 'home', path: '/admin/home' });
           return;
         }
-        const rid = curSession.rid as string;
+        if (curSession?.rid) {
+          const rid = curSession.rid;
+          const curR = rid === 'demo' ? ({ done: 1 } as Restaurant) : getItem<Restaurant>(`restaurants/${rid}`);
+          if (curR && curR.done === 1) {
+            let savedBranch = '';
+            try {
+              savedBranch = window.localStorage.getItem(`mp_active_branch_${rid}`) || '';
+            } catch {
+              // ignore storage errors
+            }
+            const validBranch =
+              savedBranch &&
+              savedBranch !== rid &&
+              getItem<Restaurant>(`restaurants/${savedBranch}`)?.parentRid === rid
+                ? savedBranch
+                : undefined;
+            const dashPath = getDashboardTabPath('home', validBranch);
+            window.history.replaceState(null, '', dashPath);
+            setRoute({ page: 'dashboard', tab: 'home', branchId: validBranch, path: dashPath });
+            return;
+          }
+          window.history.replaceState(null, '', '/onboard');
+          setRoute({ page: 'onboard', path: '/onboard' });
+          return;
+        }
+        try {
+          window.sessionStorage.setItem('mp_post_login_path', '/dashboard/home');
+        } catch {
+          // ignore storage errors
+        }
+        window.history.replaceState(null, '', '/login');
+        setRoute({ page: 'login', path: '/login' });
+        return;
+      }
+
+      // Redirect already-authenticated users away from login
+      if (parsed.page === 'login' && (curSession?.rid || curSession?.admin)) {
+        if (curSession.admin && (!curSession.rid || curSession.menuLoggedOut)) {
+          window.history.replaceState(null, '', '/admin/home');
+          setRoute({ page: 'admin', tab: 'home', path: '/admin/home' });
+          return;
+        }
+        const rid = (curSession.rid || curSession.personalRid || 'demo') as string;
         const curR = rid === 'demo' ? ({ done: 1 } as Restaurant) : getItem<Restaurant>(`restaurants/${rid}`);
         if (!curR || curR.done !== 1) {
           window.history.replaceState(null, '', '/onboard');
           setRoute({ page: 'onboard', path: '/onboard' });
           return;
         }
-        window.history.replaceState(null, '', '/dashboard/home');
-        setRoute({ page: 'dashboard', tab: 'home', path: '/dashboard/home' });
+        let targetDashUrl = '';
+        try {
+          const pending = window.sessionStorage.getItem('mp_post_login_path') || '';
+          if (pending.startsWith('/dashboard')) {
+            window.sessionStorage.removeItem('mp_post_login_path');
+            targetDashUrl = pending;
+          }
+        } catch {
+          // ignore storage errors
+        }
+        if (!targetDashUrl) {
+          let savedBranch = '';
+          try {
+            savedBranch = window.localStorage.getItem(`mp_active_branch_${rid}`) || '';
+          } catch {
+            // ignore storage errors
+          }
+          const validBranch =
+            savedBranch &&
+            savedBranch !== rid &&
+            getItem<Restaurant>(`restaurants/${savedBranch}`)?.parentRid === rid
+              ? savedBranch
+              : undefined;
+          targetDashUrl = getDashboardTabPath('home', validBranch);
+        }
+        const targetParsed = parsePathRoute(targetDashUrl);
+        window.history.replaceState(null, '', targetDashUrl);
+        if (targetParsed.page === 'dashboard') {
+          setRoute(targetParsed);
+        } else {
+          setRoute({ page: 'dashboard', tab: 'home', path: '/dashboard/home' });
+        }
         return;
       }
 
       // Guard dashboard & onboard routes
       if ((parsed.page === 'dashboard' || parsed.page === 'onboard') && !curSession?.rid && !curSession?.admin) {
+        if (parsed.page === 'dashboard') {
+          try {
+            window.sessionStorage.setItem('mp_post_login_path', `${parsed.path}${search || ''}`);
+          } catch {
+            // ignore storage errors
+          }
+        }
         window.history.replaceState(null, '', '/login');
         setRoute({ page: 'login', path: '/login' });
         return;
@@ -172,6 +258,11 @@ export default function App() {
       if (parsed.page === 'dashboard' && !curSession?.admin) {
         const rid = curSession?.rid as string;
         if (!rid) {
+          try {
+            window.sessionStorage.setItem('mp_post_login_path', `${parsed.path}${search || ''}`);
+          } catch {
+            // ignore storage errors
+          }
           window.history.replaceState(null, '', '/login');
           setRoute({ page: 'login', path: '/login' });
           return;
@@ -455,6 +546,11 @@ export default function App() {
       if (parsed.page === 'dashboard' && !curSession?.admin) {
         const rid = curSession?.rid;
         if (!rid) {
+          try {
+            window.sessionStorage.setItem('mp_post_login_path', `${parsed.path}${nextQuery ? `?${nextQuery}` : ''}`);
+          } catch {
+            // ignore storage errors
+          }
           window.history.pushState(null, '', '/login');
           setRoute({ page: 'login', path: '/login' });
           window.scrollTo({ top: 0, behavior: 'auto' });
@@ -529,10 +625,23 @@ export default function App() {
 
   const isStorefrontRoute = route.page === 'menu' || Boolean(subdomainRestaurantId && route.page === 'home');
 
+  useEffect(() => {
+    if (typeof document === 'undefined' || route.page === 'dashboard') return;
+    const manifestLink = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+    if (manifestLink && manifestLink.getAttribute('href') !== '/manifest.webmanifest') {
+      manifestLink.setAttribute('href', '/manifest.webmanifest');
+    }
+    const appleTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (appleTitle && appleTitle.getAttribute('content') !== 'منيو بلس') {
+      appleTitle.setAttribute('content', 'منيو بلس');
+    }
+  }, [route.page]);
+
   syncDashboardMotionFromSite(site, route.path);
 
   return (
     <div className="min-h-screen">
+      <OfflineIndicator />
       {/* Toast popup */}
       {toastState && (
         <div
@@ -608,6 +717,7 @@ export default function App() {
             plans={plans}
             site={site}
             initialSubTab={route.tab}
+            initialBranchId={route.branchId}
             onNavigate={handleNavigate}
             onLogout={() => void handleLogout(false)}
             onRefresh={refreshData}

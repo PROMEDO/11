@@ -1,10 +1,11 @@
-const CACHE_NAME = 'menuplus-shell-v3';
+const CACHE_NAME = 'menuplus-shell-v4';
 const SHELL_ASSETS = [
   '/manifest.webmanifest',
   '/assets/aistudio/icon_f95f5a07.png',
   '/apple-touch-icon.png',
   '/pwa-192x192.png',
   '/pwa-512x512.png',
+  '/pwa-maskable-512x512.png',
 ];
 
 self.addEventListener('install', (event) => {

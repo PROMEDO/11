@@ -5,9 +5,15 @@
 
 import React, { Suspense, lazy, useEffect } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
-import { AlertTriangle, Eye, GitBranch, Loader2, LogOut, MessageCircle, Save, Share2, Store, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, Eye, GitBranch, Loader2, LogOut, MessageCircle, Save, Share2, Store, X } from 'lucide-react';
 import { AppLogo } from '../../components/AppLogo';
 import { AjaxConfirmModal } from '../../components/AjaxConfirmModal';
+import { PauseVisibilityModal } from '../../components/PauseVisibilityModal';
+import { BranchSwitcherModal } from '../../components/BranchSwitcherModal';
+import {
+  DashboardPWAInstallBanner,
+  DashboardSidebarInstallButton,
+} from '../../components/DashboardPWAInstallPrompt';
 import { DEFAULT_SITE } from '../../utils/storage';
 import { dashTabMotion } from '../../utils/dashboardMotion';
 import {
@@ -56,6 +62,10 @@ const DashboardShell: React.FC = () => {
     rest,
     branchesList,
     switchActiveBranch,
+    branchModalOpen,
+    branchModalIsStartup,
+    openBranchSwitcherModal,
+    dismissBranchModal,
     resolvedPlan,
     purchaseModalPlan,
     setPurchaseModalPlan,
@@ -79,6 +89,9 @@ const DashboardShell: React.FC = () => {
     newOrdersCount,
     ajaxDialog,
     setAjaxDialog,
+    pauseModalTarget,
+    setPauseModalTarget,
+    handleConfirmManualPause,
     flushPendingAppearanceSave,
     flushAllPendingSaves,
     unifiedSaving,
@@ -152,30 +165,38 @@ const DashboardShell: React.FC = () => {
     </div>
   );
 
-  const renderBranchSwitcher = (scope: 'desktop' | 'drawer') => {
+  const renderBranchSwitcher = (_scope: 'desktop' | 'drawer') => {
     if (branchesList.length === 0) return null;
-    const selectId = `mp-sb-branch-select-${scope}`;
+    const isMainBranch = activeRid === mainRid;
+    const activeBranchTitle = isMainBranch
+      ? `${mainRest.n} (الرئيسي)`
+      : rest.branchName || rest.n;
+
     return (
       <div className="mp-sb-branch-card">
-        <label className="mp-sb-branch-label" htmlFor={selectId}>
+        <div className="mp-sb-branch-label">
           <GitBranch size={13} className="mp-sb-branch-ico" />
           <span>الفرع النشط</span>
-        </label>
-        <select
-          id={selectId}
-          className="mp-sb-branch-select"
-          value={activeRid}
-          onChange={(e) => switchActiveBranch(e.target.value)}
+          <span className="mp-sb-branch-badge">
+            {isMainBranch ? 'رئيسي' : 'فرع'}
+          </span>
+        </div>
+        <button
+          type="button"
+          className="mp-sb-branch-trigger"
+          onClick={() => {
+            setDrawerOpen(false);
+            openBranchSwitcherModal();
+          }}
         >
-          <option value={mainRid}>
-            {mainRest.n} (الرئيسي)
-          </option>
-          {branchesList.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.branchName || b.n}
-            </option>
-          ))}
-        </select>
+          <span className="mp-sb-branch-trigger-name" title={activeBranchTitle}>
+            {activeBranchTitle}
+          </span>
+          <span className="mp-sb-branch-trigger-action">
+            <span>تبديل</span>
+            <ChevronDown size={13} />
+          </span>
+        </button>
       </div>
     );
   };
@@ -185,6 +206,15 @@ const DashboardShell: React.FC = () => {
       <div className="sb-nav-divider" />
 
       <div className="sb-footer-inline">
+        <DashboardSidebarInstallButton
+          restaurantName={mainRest.n}
+          branchName={activeRid !== mainRid ? rest.branchName || rest.n : undefined}
+          showToast={showToast}
+          onAction={() => {
+            if (closeDrawer) setDrawerOpen(false);
+          }}
+        />
+
         <button
           type="button"
           className="sb-footer-item"
@@ -424,6 +454,12 @@ const DashboardShell: React.FC = () => {
           </div>
         </header>
 
+        <DashboardPWAInstallBanner
+          restaurantName={mainRest.n}
+          branchName={activeRid !== mainRid ? rest.branchName || rest.n : undefined}
+          showToast={showToast}
+        />
+
         <Suspense fallback={<TabFallback />}>
           <motion.div
             key={activeTab}
@@ -460,6 +496,26 @@ const DashboardShell: React.FC = () => {
       <AjaxConfirmModal
         dialog={ajaxDialog}
         onClose={() => setAjaxDialog((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      <PauseVisibilityModal
+        target={pauseModalTarget}
+        isStore={terms.isStore}
+        onClose={() => setPauseModalTarget(null)}
+        onConfirm={handleConfirmManualPause}
+      />
+
+      <BranchSwitcherModal
+        isOpen={branchModalOpen && branchesList.length > 0}
+        isStartupPrompt={branchModalIsStartup}
+        mainRid={mainRid}
+        activeRid={activeRid}
+        mainRest={mainRest}
+        branchesList={branchesList}
+        isStore={terms.isStore}
+        onSelectBranch={(targetRid) => void switchActiveBranch(targetRid)}
+        onClose={dismissBranchModal}
+        showToast={showToast}
       />
 
       {Boolean(purchaseModalPlan) && (

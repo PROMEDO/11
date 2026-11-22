@@ -384,40 +384,6 @@ export const SettingsPage: React.FC = () => {
                 </div>
 
                 <div className="mp-set2-list">
-                  {/* Currency */}
-                  <div className="mp-set2-row">
-                    <div className="mp-set2-row-meta">
-                      <div className="mp-set2-mini-ico">
-                        <Coins size={16} />
-                      </div>
-                      <div>
-                        <div className="mp-set2-row-label">العملة</div>
-                        <div className="mp-set2-row-desc">للأسعار والفواتير</div>
-                      </div>
-                    </div>
-
-                    <select
-                      aria-label="اختيار العملة"
-                      value={restCurrency}
-                      onChange={(e) => handleCurrencyChange(e.target.value)}
-                      className="mp-set2-currency-select"
-                      style={themedInputStyle}
-                    >
-                      <option value="د.ع">د.ع — دينار عراقي</option>
-                      <option value="$">$ — دولار أمريكي</option>
-                      <option value="ر.س">ر.س — ريال سعودي</option>
-                      <option value="د.إ">د.إ — درهم إماراتي</option>
-                      <option value="د.ك">د.ك — دينار كويتي</option>
-                      <option value="د.أ">د.أ — دينار أردني</option>
-                      <option value="ر.ق">ر.ق — ريال قطري</option>
-                      <option value="د.ب">د.ب — دينار بحريني</option>
-                      <option value="ر.ع">ر.ع — ريال عماني</option>
-                      <option value="ج.م">ج.م — جنيه مصري</option>
-                      <option value="ل.ل">ل.ل — ليرة لبنانية</option>
-                      <option value="€">€ — يورو</option>
-                    </select>
-                  </div>
-
                   {/* View-Only Catalog Mode */}
                   <div className="mp-set2-row">
                     <div className="mp-set2-row-meta">
@@ -589,6 +555,40 @@ export const SettingsPage: React.FC = () => {
                     >
                       <span className="ios-switch-thumb" />
                     </button>
+                  </div>
+
+                  {/* Currency (placed last per settings order) */}
+                  <div className="mp-set2-row">
+                    <div className="mp-set2-row-meta">
+                      <div className="mp-set2-mini-ico">
+                        <Coins size={16} />
+                      </div>
+                      <div>
+                        <div className="mp-set2-row-label">العملة</div>
+                        <div className="mp-set2-row-desc">للأسعار والفواتير</div>
+                      </div>
+                    </div>
+
+                    <select
+                      aria-label="اختيار العملة"
+                      value={restCurrency}
+                      onChange={(e) => handleCurrencyChange(e.target.value)}
+                      className="mp-set2-currency-select"
+                      style={themedInputStyle}
+                    >
+                      <option value="د.ع">د.ع — دينار عراقي</option>
+                      <option value="$">$ — دولار أمريكي</option>
+                      <option value="ر.س">ر.س — ريال سعودي</option>
+                      <option value="د.إ">د.إ — درهم إماراتي</option>
+                      <option value="د.ك">د.ك — دينار كويتي</option>
+                      <option value="د.أ">د.أ — دينار أردني</option>
+                      <option value="ر.ق">ر.ق — ريال قطري</option>
+                      <option value="د.ب">د.ب — دينار بحريني</option>
+                      <option value="ر.ع">ر.ع — ريال عماني</option>
+                      <option value="ج.م">ج.م — جنيه مصري</option>
+                      <option value="ل.ل">ل.ل — ليرة لبنانية</option>
+                      <option value="€">€ — يورو</option>
+                    </select>
                   </div>
                 </div>
               </div>

@@ -6,6 +6,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  Ban,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -381,6 +382,8 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
     const itemEval = itemEvalMap.get(it.id);
     const displayOnly = Boolean(isDisplayOnlyItem?.(it));
     const unavailable = !displayOnly && (itemEval ? !itemEval.available : false);
+    const showUnavailableBadge =
+      unavailable || Boolean(itemEval && !itemEval.available && !itemEval.outOfSchedule);
     const isFav = favoriteSet.has(it.id);
     const discountPct =
       priceInfo.rawBefore > priceInfo.min && priceInfo.rawBefore > 0
@@ -395,7 +398,7 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
     return (
       <article
         key={`${keyPrefix}_${it.id}`}
-        className={`mp-bg-product-card ${unavailable ? 'is-unavailable' : ''}`}
+        className={`mp-bg-product-card ${showUnavailableBadge ? 'is-unavailable' : ''}`}
         onClick={() => openProductModal(it)}
       >
         <div className="mp-bg-card-media">
@@ -417,7 +420,7 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
             <span className="mp-bg-disc-ribbon tabular-nums">-{discountPct}%</span>
           )}
 
-          {unavailable && (
+          {showUnavailableBadge && (
             <span className="mp-bg-unavail-ribbon">
               {itemEval?.outOfSchedule ? 'خارج وقت التوفر' : 'غير متوفر'}
             </span>
@@ -456,7 +459,7 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
                 aria-label={`أضف ${it.n} للسلة`}
               >
                 {unavailable ? (
-                  <Clock size={15} />
+                  itemEval?.outOfSchedule ? <Clock size={15} /> : <Ban size={15} />
                 ) : qty > 0 && !hasRequiredChoices ? (
                   <>
                     <Plus size={14} strokeWidth={2.5} />
@@ -481,7 +484,7 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
             )}
           </div>
           <h3 className="mp-bg-card-title">{it.n}</h3>
-          {unavailable && (
+          {showUnavailableBadge && (
             <span className="pm-item-unavailable-label">غير متوفر حالياً</span>
           )}
         </div>
@@ -1109,11 +1112,15 @@ export const EstoreStorefront: React.FC<EstoreStorefrontProps> = ({
                         <div className="mp-bg-cat-body">
                           <b>{cat.n}</b>
                           <span className="tabular-nums">{count} منتج</span>
-                          {catEval?.hasSchedule && (
+                          {catEval && !catEval.available && !catEval.outOfSchedule ? (
+                            <small className="is-off">
+                              <Ban size={10} /> غير متوفر حالياً
+                            </small>
+                          ) : catEval?.hasSchedule ? (
                             <small className={catEval.available ? 'is-on' : 'is-off'}>
                               <Clock size={10} /> {catEval.badgeText}
                             </small>
-                          )}
+                          ) : null}
                         </div>
                       </button>
                     );

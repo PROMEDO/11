@@ -8,8 +8,13 @@ import { motion, useReducedMotion } from 'motion/react';
 import {
   ArrowUpRight,
   CheckCircle2,
+  Eye,
+  GitBranch,
   Lightbulb,
+  ShoppingBag,
   Sparkles,
+  Tag,
+  Tags,
 } from 'lucide-react';
 import { fetchDashboardTelegramStatusApi } from '../../utils/adminApi';
 import { DEFAULT_MEDIA_ASSETS } from '../../utils/businessDefaults';
@@ -25,6 +30,10 @@ export const HomePage: React.FC = () => {
     terms,
     allCategories,
     allItems,
+    branchesList,
+    viewOnlyMode,
+    toggleViewOnlyMode,
+    openBranchSwitcherModal,
     setActiveTab,
     openSettingsSection,
     handleSeedStoreCatalog,
@@ -251,6 +260,113 @@ export const HomePage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Quick Action Shortcuts */}
+      <section className="mp-home-shortcuts-section" dir="rtl" aria-label="اختصارات سريعة">
+        <div className="mp-home-shortcuts-head">
+          <h2 className="mp-home-shortcuts-title">اختصارات سريعة</h2>
+          <span className="mp-home-shortcuts-sub">وصول فوري لأكثر الإجراءات استخداماً</span>
+        </div>
+
+        <div className="mp-home-shortcuts-grid">
+          <button
+            type="button"
+            className="mp-home-shortcut-card"
+            onClick={() => setActiveTab('menu')}
+          >
+            <span className="mp-home-shortcut-ico">
+              <Tag size={19} />
+            </span>
+            <span className="mp-home-shortcut-body">
+              <span className="mp-home-shortcut-label">
+                {terms.isStore ? 'تعديل أسعار وتوفر المنتجات' : 'تعديل أسعار وتوفر المنتجات والأصناف'}
+              </span>
+              <span className="mp-home-shortcut-desc">
+                تغيير الأسعار أو إيقاف وتفعيل التوفر بسرعة
+              </span>
+            </span>
+            <ArrowUpRight size={16} className="mp-home-shortcut-arrow" />
+          </button>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={viewOnlyMode}
+            className={`mp-home-shortcut-card is-toggle ${viewOnlyMode ? 'is-active-warn' : ''}`}
+            onClick={toggleViewOnlyMode}
+          >
+            <span className={`mp-home-shortcut-ico ${viewOnlyMode ? 'is-warn' : ''}`}>
+              <Eye size={19} />
+            </span>
+            <span className="mp-home-shortcut-body">
+              <span className="mp-home-shortcut-label">
+                {viewOnlyMode ? 'الطلبات متوقفة (وضع العرض فقط)' : 'إيقاف الطلبات (وضع العرض فقط)'}
+              </span>
+              <span className="mp-home-shortcut-desc">
+                {viewOnlyMode
+                  ? 'السلة والطلبات مطفأة حالياً — اضغط لإعادة التفعيل'
+                  : 'إخفاء السلة وإطفاء التوصيل والحجز لعرض المنتجات فقط'}
+              </span>
+            </span>
+            <span className={`ios-switch sm ${viewOnlyMode ? 'on' : 'off'}`} aria-hidden="true">
+              <span className="ios-switch-thumb" />
+            </span>
+          </button>
+
+          <button
+            type="button"
+            className="mp-home-shortcut-card"
+            onClick={() => setActiveTab('cats')}
+          >
+            <span className="mp-home-shortcut-ico">
+              <Tags size={19} />
+            </span>
+            <span className="mp-home-shortcut-body">
+              <span className="mp-home-shortcut-label">إدارة الأقسام والتصنيفات</span>
+              <span className="mp-home-shortcut-desc">
+                إضافة أو ترتيب أو إخفاء الأقسام الرئيسية
+              </span>
+            </span>
+            <ArrowUpRight size={16} className="mp-home-shortcut-arrow" />
+          </button>
+
+          {branchesList.length > 0 ? (
+            <button
+              type="button"
+              className="mp-home-shortcut-card"
+              onClick={openBranchSwitcherModal}
+            >
+              <span className="mp-home-shortcut-ico">
+                <GitBranch size={19} />
+              </span>
+              <span className="mp-home-shortcut-body">
+                <span className="mp-home-shortcut-label">تبديل الفرع النشط</span>
+                <span className="mp-home-shortcut-desc">
+                  الفرع الحالي: {activeRid === mainRid ? 'الفرع الرئيسي' : rest.branchName || rest.n}
+                </span>
+              </span>
+              <ArrowUpRight size={16} className="mp-home-shortcut-arrow" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="mp-home-shortcut-card"
+              onClick={() => setActiveTab('orders')}
+            >
+              <span className="mp-home-shortcut-ico">
+                <ShoppingBag size={19} />
+              </span>
+              <span className="mp-home-shortcut-body">
+                <span className="mp-home-shortcut-label">سجل الطلبات الواردة</span>
+                <span className="mp-home-shortcut-desc">
+                  متابعة الطلبات الجديدة وحالتها مباشرة
+                </span>
+              </span>
+              <ArrowUpRight size={16} className="mp-home-shortcut-arrow" />
+            </button>
+          )}
+        </div>
+      </section>
 
       {/* Checklist Section: hidden once all steps are completed */}
       {!allTipsCompleted && (

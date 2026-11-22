@@ -1825,6 +1825,60 @@ app.delete('/api/admin/fonts/:fileId', requireAdminOrStaff(), async (req, res) =
   }
 });
 
+app.get('/api/pwa/dashboard-manifest.webmanifest', (req, res) => {
+  const rawBranchId = typeof req.query.branchId === 'string' ? req.query.branchId.trim() : '';
+  const safeBranchId = /^[a-zA-Z0-9_-]{1,64}$/.test(rawBranchId) ? rawBranchId : '';
+  const rawName = typeof req.query.name === 'string' ? req.query.name.trim() : '';
+  const cleanName = rawName.replace(/[\r\n\t<>]/g, '').slice(0, 60);
+
+  const manifestId = safeBranchId ? `/dashboard/b/${safeBranchId}/` : '/dashboard/';
+  const startUrl = safeBranchId
+    ? `/dashboard/b/${encodeURIComponent(safeBranchId)}/home?source=pwa`
+    : '/dashboard/home?source=pwa';
+  const fullName = cleanName ? `لوحة تحكم ${cleanName}` : 'لوحة تحكم منيو بلس';
+  const shortNameSource = cleanName || 'لوحة التحكم';
+  const shortName = shortNameSource.length <= 12 ? shortNameSource : 'لوحة التحكم';
+
+  res
+    .status(200)
+    .setHeader('Content-Type', 'application/manifest+json; charset=utf-8')
+    .setHeader('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0')
+    .json({
+      id: manifestId,
+      name: fullName,
+      short_name: shortName,
+      description: 'لوحة تحكم منيو بلس لإدارة المنيو والفروع والطلبات مباشرة.',
+      start_url: startUrl,
+      scope: '/',
+      display: 'standalone',
+      orientation: 'portrait-primary',
+      dir: 'rtl',
+      lang: 'ar',
+      theme_color: '#061c15',
+      background_color: '#061c15',
+      icons: [
+        {
+          src: '/pwa-192x192.png',
+          sizes: '192x192',
+          type: 'image/png',
+          purpose: 'any',
+        },
+        {
+          src: '/pwa-512x512.png',
+          sizes: '512x512',
+          type: 'image/png',
+          purpose: 'any',
+        },
+        {
+          src: '/pwa-maskable-512x512.png',
+          sizes: '512x512',
+          type: 'image/png',
+          purpose: 'maskable',
+        },
+      ],
+    });
+});
+
 // 5. Handle OPTIONS preflight and unmatched API routes with JSON 404 instead of index.html
 app.options('/api/*', (_req, res) => {
   res.status(204).end();
@@ -2031,6 +2085,18 @@ async function injectSeoMetaIntoHtml(html: string, req: Request): Promise<string
     if (out.includes('</head>')) {
       out = out.replace('</head>', () => `  ${seoTags.join('\n  ')}\n  </head>`);
     }
+
+    if (req.path.startsWith('/dashboard')) {
+      const branchMatch = /^\/dashboard\/b\/([a-zA-Z0-9_-]+)/.exec(req.path);
+      const manifestHref = branchMatch
+        ? `/api/pwa/dashboard-manifest.webmanifest?branchId=${encodeURIComponent(branchMatch[1])}`
+        : '/api/pwa/dashboard-manifest.webmanifest';
+      out = out.replace(
+        /<link\s+rel="manifest"\s+href="[^"]*"\s*\/?>/i,
+        () => `<link rel="manifest" href="${escapeSeoAttr(manifestHref)}" />`
+      );
+    }
+
     return out;
   } catch {
     return html;

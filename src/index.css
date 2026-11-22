@@ -7062,6 +7062,119 @@ html[data-theme="dark"] .mp-dash-topbar-btn.is-primary {
   color: var(--muted);
 }
 
+.mp-home-shortcuts-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.mp-home-shortcuts-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.mp-home-shortcuts-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--ink);
+}
+
+.mp-home-shortcuts-sub {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.mp-home-shortcuts-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+}
+
+.mp-home-shortcut-card {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  background: color-mix(in srgb, var(--surface) 46%, transparent);
+  backdrop-filter: blur(14px) saturate(1.25);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  color: var(--ink);
+  text-align: right;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.mp-home-shortcut-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line));
+  background: color-mix(in srgb, var(--surface) 74%, transparent);
+}
+
+.mp-home-shortcut-card.is-active-warn {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: color-mix(in srgb, #f59e0b 8%, var(--surface));
+}
+
+.mp-home-shortcut-ico {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  background: var(--soft);
+  color: var(--brand-ink, var(--brand));
+  border: 1px solid color-mix(in srgb, var(--brand) 22%, transparent);
+}
+
+.mp-home-shortcut-ico.is-warn {
+  background: rgba(245, 158, 11, 0.14);
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.mp-home-shortcut-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.mp-home-shortcut-label {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.mp-home-shortcut-desc {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.mp-home-shortcut-arrow {
+  color: var(--muted);
+  flex-shrink: 0;
+  opacity: 0.78;
+}
+
+@media (max-width: 720px) {
+  .mp-home-shortcuts-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .mp-home-section {
   background: transparent;
   border: none;
@@ -10036,9 +10149,145 @@ html[data-theme="dark"] .mp-items-count-box {
   margin: 0;
 }
 
+.mp-sb-branch-badge {
+  margin-inline-start: auto;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--brand) 14%, transparent);
+  color: var(--brand-ink, var(--brand));
+}
+
 .mp-sb-branch-ico {
   color: var(--brand-ink, #34D399);
   flex-shrink: 0;
+}
+
+.mp-sb-branch-trigger {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: start;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.mp-sb-branch-trigger:hover {
+  border-color: color-mix(in srgb, var(--brand) 48%, var(--line));
+}
+
+.mp-sb-branch-trigger-name {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mp-sb-branch-trigger-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--brand-ink, var(--brand));
+  flex-shrink: 0;
+}
+
+.mp-pwa-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: 0 0 16px;
+  padding: 11px 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--brand) 36%, var(--line));
+  background: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+.mp-pwa-banner-info {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.mp-pwa-banner-ico {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: var(--brand);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.mp-pwa-banner-title {
+  font-size: 13.5px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.mp-pwa-banner-sub {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.mp-pwa-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.mp-pwa-install-btn {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--brand);
+  color: #ffffff;
+  font-size: 12.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.mp-pwa-install-btn:hover {
+  filter: brightness(1.06);
+}
+
+.mp-pwa-dismiss-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 75%, transparent);
+  color: var(--muted);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
 }
 
 .mp-sb-branch-select {
